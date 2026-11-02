@@ -5,6 +5,8 @@ from app.db.session import get_db
 from app.models.entities import Project
 from app.schemas.schemas import ProjectCreate, ProjectResponse, ProjectDetailResponse
 
+from app.services.storage.storage_service import storage_service
+
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 @router.get("", response_model=List[ProjectResponse])
@@ -45,6 +47,11 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     proj = db.query(Project).filter(Project.id == project_id).first()
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found.")
+
+    # Remove all external media files belonging to this project
+    for asset in proj.assets:
+        storage_service.delete_file(asset.storage_path)
+
     db.delete(proj)
     db.commit()
     return None

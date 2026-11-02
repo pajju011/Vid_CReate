@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Film, Sparkles, Scissors, Clock, ArrowRight, Play, CheckCircle2,
-  AlertCircle, Plus, Layers, Video
+  AlertCircle, Plus, Layers, Video, HardDrive, ShieldCheck
 } from 'lucide-react';
 import { Project } from '../types';
 import { api } from '../services/api';
@@ -10,12 +10,26 @@ import { api } from '../services/api';
 export const Dashboard: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [storageStats, setStorageStats] = useState<{
+    media_storage_path: string;
+    temp_media_path: string;
+    free_gb: number;
+    total_gb: number;
+  } | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await api.listProjects();
-        setProjects(data);
+        const [projectsData, statsData] = await Promise.allSettled([
+          api.listProjects(),
+          api.getStorageStats(),
+        ]);
+        if (projectsData.status === 'fulfilled') {
+          setProjects(projectsData.value);
+        }
+        if (statsData.status === 'fulfilled') {
+          setStorageStats(statsData.value);
+        }
       } catch (err) {
         console.error(err);
       } finally {
@@ -60,6 +74,39 @@ export const Dashboard: React.FC = () => {
 
         {/* Decorative background glow */}
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-indigo-600/10 to-transparent pointer-events-none" />
+      </div>
+
+      {/* External Storage Status Bar */}
+      <div className="bg-[#111827] border border-gray-800 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+            <HardDrive className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider">External Media Storage</h4>
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                <ShieldCheck className="w-3 h-3" /> Project Isolated
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 font-mono mt-0.5">
+              Target: <span className="text-indigo-300 font-medium">{storageStats?.media_storage_path || 'D:/AI_Video_Storage'}</span>
+              {storageStats && (
+                <span className="text-gray-500 ml-2">
+                  ({storageStats.free_gb.toFixed(1)} GB free of {storageStats.total_gb.toFixed(1)} GB)
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/settings"
+            className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors flex items-center gap-1"
+          >
+            Manage Storage <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       </div>
 
       {/* Quick Launch Cards */}

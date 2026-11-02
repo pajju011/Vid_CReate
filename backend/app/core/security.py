@@ -36,12 +36,34 @@ def validate_upload_file(file: UploadFile) -> None:
             detail=f"Unsupported file format '{ext}'. Supported formats: {', '.join(settings.ALLOWED_EXTENSIONS)}"
         )
 
-def validate_safe_path(target_path: Path, base_dir: Path = settings.STORAGE_DIR) -> Path:
-    """Ensure target path does not escape the designated base directory."""
+def validate_safe_path(target_path: Path, base_dir: Path = None) -> Path:
+    """
+    Ensure target path does not escape external storage directories and
+    strictly guarantees no media is accessed or stored inside the project folder.
+    """
     try:
         resolved_target = target_path.resolve()
-        resolved_base = base_dir.resolve()
-        if not str(resolved_target).startswith(str(resolved_base)):
+        resolved_project = settings.BASE_DIR.resolve()
+
+        # Reject any media path located inside the project repository
+        if str(resolved_target).lower().startswith(str(resolved_project).lower()):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Security violation: Media files cannot reside inside the project directory."
+            )
+
+        if base_dir:
+            if not str(resolved_target).lower().startswith(str(base_dir.resolve()).lower()):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: path traversal attempt detected."
+                )
+            return resolved_target
+
+        from app.services.storage.storage_service import storage_service
+        allowed = storage_service.get_allowed_roots()
+        is_allowed = any(str(resolved_target).lower().startswith(str(d.resolve()).lower()) for d in allowed if d.exists())
+        if not is_allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: path traversal attempt detected."

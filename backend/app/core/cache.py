@@ -12,8 +12,12 @@ class AssetCache:
     Prevents duplicate API calls and GPU rendering for identical prompt/style combinations.
     """
     def __init__(self, cache_dir: Optional[Path] = None):
-        self.cache_dir = cache_dir or (settings.STORAGE_DIR / "cache")
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        from app.services.storage.storage_service import storage_service
+        self.cache_dir = cache_dir or storage_service.cache_dir
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
     def _compute_key(self, namespace: str, params: Dict[str, Any]) -> str:
         serialized = json.dumps(params, sort_keys=True, default=str)

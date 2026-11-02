@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.cache import asset_cache
+from app.services.storage.storage_service import storage_service
 from app.providers.base import BaseVideoProvider
 from app.utils.sample_media import create_sample_scene_video
 from app.utils.ffmpeg import generate_image_to_video_motion
@@ -31,7 +32,7 @@ class MockVideoProvider(BaseVideoProvider):
             }
 
         job_id = f"mock_vid_{uuid.uuid4().hex[:8]}"
-        out_path = settings.TEMP_DIR / f"{job_id}.mp4"
+        out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
         success = create_sample_scene_video(
             output_path=out_path,
             duration=duration_seconds,
@@ -63,7 +64,7 @@ class MockVideoProvider(BaseVideoProvider):
         aspect_ratio: str = "9:16"
     ) -> Dict[str, Any]:
         job_id = f"mock_i2v_{uuid.uuid4().hex[:8]}"
-        out_path = settings.TEMP_DIR / f"{job_id}.mp4"
+        out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
         tw = 1080 if aspect_ratio == "9:16" else 1920
         th = 1920 if aspect_ratio == "9:16" else 1080
 

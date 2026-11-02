@@ -139,6 +139,36 @@ export const api = {
     const res = await fetch(`${API_BASE}/settings`);
     if (!res.ok) throw new Error('Failed to fetch settings');
     return res.json();
+  },
+
+  // External Storage Management
+  async getStorageStats(): Promise<{
+    media_storage_path: string;
+    temp_media_path: string;
+    draft_storage_enabled: boolean;
+    total_gb: number;
+    used_gb: number;
+    free_gb: number;
+    percent_used: number;
+    rendered_videos_count: number;
+    uploads_count: number;
+    drafts_count: number;
+    is_outside_project: boolean;
+  }> {
+    const res = await fetch(`${API_BASE}/storage/stats`);
+    if (!res.ok) throw new Error('Failed to fetch storage stats');
+    return res.json();
+  },
+
+  async deleteAsset(assetId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/assets/${assetId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete asset from external storage');
+  },
+
+  async cleanupTempStorage(): Promise<{ message: string }> {
+    const res = await fetch(`${API_BASE}/storage/cleanup`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to clean up temp storage');
+    return res.json();
   }
 };
 

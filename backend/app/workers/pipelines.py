@@ -14,6 +14,7 @@ from app.services.clip_selection.clip_ranker import clip_ranker
 from app.services.quality_control.qc_service import qc_service
 from app.services.consistency.consistency_engine import consistency_engine
 from app.core.cache import asset_cache
+from app.services.storage.storage_service import storage_service
 from app.providers.registry import providers
 
 def update_job_sync(
@@ -60,12 +61,12 @@ def run_analyze_video_pipeline(job_id: str, asset_id: str, target_clip_duration:
             session.commit()
 
         # 2. Extract thumbnail
-        thumb_path = settings.TEMP_DIR / f"thumb_{asset_id}.jpg"
+        thumb_path = storage_service.create_temp_path(prefix=f"thumb_{asset_id}", suffix=".jpg", job_id=job_id)
         extract_thumbnail(video_path, thumb_path, timestamp=min(1.0, meta["duration"] / 2))
 
         # 3. Transcription
         update_job_sync(job_id, "running", 30, "Extracting audio and transcribing speech...")
-        audio_wav = settings.TEMP_DIR / f"audio_{asset_id}.wav"
+        audio_wav = storage_service.create_temp_path(prefix=f"audio_{asset_id}", suffix=".wav", job_id=job_id)
         transcript_data = {"text": "", "language": "en", "segments": []}
         if meta.get("has_audio"):
             if extract_audio(video_path, audio_wav):
@@ -121,6 +122,9 @@ def run_analyze_video_pipeline(job_id: str, asset_id: str, target_clip_duration:
                 proj.status = "ready"
             session.commit()
 
+        # Clean up temporary processing files
+        storage_service.cleanup_job_temp_files(job_id)
+
         update_job_sync(
             job_id,
             "completed",
@@ -131,6 +135,7 @@ def run_analyze_video_pipeline(job_id: str, asset_id: str, target_clip_duration:
 
     except Exception as e:
         logger.exception(f"Error in video analysis pipeline for asset {asset_id}")
+        storage_service.cleanup_job_temp_files(job_id)
         update_job_sync(job_id, "failed", 0, "Analysis failed", error_message=str(e))
 
 def run_render_clip_pipeline(job_id: str, clip_id: str):
@@ -157,9 +162,9 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
             clip.status = "rendering"
             session.commit()
 
-        # 1. Trim source segment
-        update_job_sync(job_id, "running", 25, "Trimming high-engagement segment...")
-        trimmed_segment = settings.TEMP_DIR / f"trim_{clip_id}.mp4"
+        # 1. Trim source segment in external temporary directory
+        update_job_sync(job_id, "running", 25, "Trimming high-engagement segment in temp storage...")
+        trimmed_segment = storage_service.create_temp_path(prefix=f"trim_{clip_id}", suffix=".mp4", job_id=job_id)
         trim_ok = trim_video(source_path, trimmed_segment, start_time, end_time)
         if not trim_ok:
             raise RuntimeError("Failed to trim video segment.")
@@ -174,11 +179,11 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
                 end_time=end_time
             )
 
-        # 3. Subtitles Generation
+        # 3. Subtitles Generation in temp directory
         update_job_sync(job_id, "running", 65, "Styling and synchronizing subtitles...")
         sub_ass_path = None
         if transcript and transcript.segments_json:
-            sub_ass_path = settings.TEMP_DIR / f"sub_{clip_id}.ass"
+            sub_ass_path = storage_service.create_temp_path(prefix=f"sub_{clip_id}", suffix=".ass", job_id=job_id)
             subtitle_generator.generate_ass(
                 segments=transcript.segments_json,
                 output_path=sub_ass_path,
@@ -187,13 +192,13 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
                 max_duration=(end_time - start_time)
             )
 
-        # 4. Render vertical video with subtitle burning
-        update_job_sync(job_id, "running", 80, "Rendering final vertical 1080x1920 MP4...")
+        # 4. Render vertical video in external temporary directory
+        update_job_sync(job_id, "running", 80, "Rendering vertical 1080x1920 MP4 in temp workspace...")
         rendered_filename = f"short_{clip_id}.mp4"
-        rendered_path = settings.RENDERS_DIR / rendered_filename
+        temp_rendered_path = storage_service.create_temp_path(prefix=f"short_render_{clip_id}", suffix=".mp4", job_id=job_id)
         render_ok = convert_to_vertical(
             input_path=trimmed_segment,
-            output_path=rendered_path,
+            output_path=temp_rendered_path,
             mode=crop_mode,
             crop_x_offset=crop_x,
             target_width=1080,
@@ -201,24 +206,34 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
             subtitle_ass_path=sub_ass_path
         )
         if not render_ok:
-            raise RuntimeError("FFmpeg failed to render final vertical short video.")
+            raise RuntimeError("FFmpeg failed to render vertical short video in temp storage.")
 
-        # 5. Quality Control check
+        # 5. Quality Control check on temporary file before promotion
         update_job_sync(job_id, "running", 92, "Running automated technical QC checks...")
-        qc_result = qc_service.evaluate_video(rendered_path, expected_aspect_ratio="9:16")
+        qc_result = qc_service.evaluate_video(temp_rendered_path, expected_aspect_ratio="9:16")
 
-        # 6. Save rendered VideoAsset and link to Clip
+        if qc_result.get("status") == "failed":
+            raise RuntimeError(f"Rendered short failed QC validation: {qc_result.get('issues')}")
+
+        # 6. Promote to permanent external storage & optional draft copy
+        storage_service.save_draft(trimmed_segment, project_id=project_id, filename=f"draft_trim_{clip_id}.mp4")
+        final_rendered_path = storage_service.save_final_video(temp_rendered_path, project_id=project_id, filename=rendered_filename)
+
+        # Clean up temporary processing files
+        storage_service.cleanup_job_temp_files(job_id)
+
+        # 7. Save rendered VideoAsset with external storage path
         with SessionLocal() as session:
             clip = session.query(Clip).filter(Clip.id == clip_id).first()
             v_asset = VideoAsset(
                 project_id=project_id,
                 asset_type="rendered_short",
-                storage_path=str(rendered_path),
+                storage_path=str(final_rendered_path),
                 original_filename=rendered_filename,
                 duration=qc_result.get("metrics", {}).get("duration"),
                 width=1080,
                 height=1920,
-                file_size_bytes=rendered_path.stat().st_size,
+                file_size_bytes=final_rendered_path.stat().st_size,
                 metadata_json={"qc_report": qc_result}
             )
             session.add(v_asset)
@@ -232,12 +247,13 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
             job_id,
             "completed",
             100,
-            "Vertical short successfully rendered!",
-            result_data={"rendered_asset_id": v_asset.id, "qc_status": qc_result["status"]}
+            "Vertical short successfully rendered in external storage!",
+            result_data={"rendered_asset_id": v_asset.id, "qc_status": qc_result["status"], "storage_path": str(final_rendered_path)}
         )
 
     except Exception as e:
         logger.exception(f"Error rendering clip {clip_id}")
+        storage_service.cleanup_job_temp_files(job_id)
         update_job_sync(job_id, "failed", 0, "Clip rendering failed", error_message=str(e))
 
 def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict):
@@ -352,33 +368,33 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 sc.status = "completed"
                 session.commit()
 
-        # 3. Voiceover narration synthesis
+        # 3. Voiceover narration synthesis in temp directory
         voiceover_path = None
         if prompt_data.get("voiceover_enabled", True):
             update_job_sync(job_id, "running", 70, "Synthesizing voiceover narration...")
             full_narration = " ".join(s.get("narration", "") for s in storyboard if s.get("narration"))
             if full_narration.strip():
                 audio_provider = providers.get_audio_provider()
-                voiceover_path = settings.TEMP_DIR / f"voice_{project_id}.wav"
+                voiceover_path = storage_service.create_temp_path(prefix=f"voice_{project_id}", suffix=".wav", job_id=job_id)
                 audio_provider.generate_voiceover(
                     text=full_narration,
                     voice=prompt_data.get("voice_selection", "energetic_male"),
                     output_path=voiceover_path
                 )
 
-        # 4. Background Music synthesis
+        # 4. Background Music synthesis in temp directory
         bg_music_path = None
         if prompt_data.get("background_music") not in ("none", None):
             update_job_sync(job_id, "running", 78, "Composing background music soundtrack...")
             audio_provider = providers.get_audio_provider()
-            bg_music_path = settings.TEMP_DIR / f"bgm_{project_id}.wav"
+            bg_music_path = storage_service.create_temp_path(prefix=f"bgm_{project_id}", suffix=".wav", job_id=job_id)
             audio_provider.generate_music(
                 mood=prompt_data.get("background_music", "upbeat"),
                 duration_seconds=prompt_data.get("duration_seconds", 30.0),
                 output_path=bg_music_path
             )
 
-        # 5. Generate Subtitles from scene captions
+        # 5. Generate Subtitles from scene captions in temp directory
         update_job_sync(job_id, "running", 82, "Compiling timed subtitle track...")
         sub_segments = []
         cur_t = 0.0
@@ -393,7 +409,7 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 })
             cur_t += dur
 
-        sub_ass_path = settings.TEMP_DIR / f"sub_proj_{project_id}.ass"
+        sub_ass_path = storage_service.create_temp_path(prefix=f"sub_proj_{project_id}", suffix=".ass", job_id=job_id)
         subtitle_generator.generate_ass(
             segments=sub_segments,
             output_path=sub_ass_path,
@@ -403,14 +419,14 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             video_height=target_h
         )
 
-        # 6. Assembly & Audio Ducking
-        update_job_sync(job_id, "running", 88, "Assembling scenes into final master video...")
+        # 6. Assembly & Audio Ducking in external temporary processing directory
+        update_job_sync(job_id, "running", 88, "Assembling scenes into master video in temp workspace...")
         output_filename = f"final_{project_id}.mp4"
-        output_path = settings.RENDERS_DIR / output_filename
+        temp_output_path = storage_service.create_temp_path(prefix=f"master_render_{project_id}", suffix=".mp4", job_id=job_id)
 
         ok = assemble_scenes(
             scene_video_paths=scene_video_paths,
-            output_path=output_path,
+            output_path=temp_output_path,
             voiceover_path=voiceover_path,
             bg_music_path=bg_music_path,
             subtitle_ass_path=sub_ass_path,
@@ -420,24 +436,33 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         if not ok:
             raise RuntimeError("FFmpeg assembly failed for final project.")
 
-        # 7. Quality Control Check
+        # 7. Quality Control Check on temporary file before promotion
         update_job_sync(job_id, "running", 95, "Running automated technical QC checks...")
         qc_result = qc_service.evaluate_video(
-            output_path,
+            temp_output_path,
             expected_aspect_ratio=prompt_data.get("aspect_ratio", "9:16"),
             require_audio=True
         )
+
+        if qc_result.get("status") == "failed":
+            raise RuntimeError(f"Master video failed QC validation: {qc_result.get('issues')}")
+
+        # 8. Promote to permanent external storage
+        final_output_path = storage_service.save_final_video(temp_output_path, project_id=project_id, filename=output_filename)
+
+        # Clean up temporary processing files
+        storage_service.cleanup_job_temp_files(job_id)
 
         with SessionLocal() as session:
             final_asset = VideoAsset(
                 project_id=project_id,
                 asset_type="rendered_final",
-                storage_path=str(output_path),
+                storage_path=str(final_output_path),
                 original_filename=output_filename,
                 duration=qc_result.get("metrics", {}).get("duration"),
                 width=target_w,
                 height=target_h,
-                file_size_bytes=output_path.stat().st_size,
+                file_size_bytes=final_output_path.stat().st_size,
                 metadata_json={"qc_report": qc_result}
             )
             session.add(final_asset)
@@ -451,17 +476,19 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             job_id,
             "completed",
             100,
-            "Video generation completed successfully!",
+            "Video generation completed and stored externally!",
             result_data={
                 "asset_id": final_asset.id,
                 "qc_status": qc_result["status"],
                 "duration": qc_result.get("metrics", {}).get("duration"),
-                "has_audio": qc_result.get("metrics", {}).get("has_audio")
+                "has_audio": qc_result.get("metrics", {}).get("has_audio"),
+                "storage_path": str(final_output_path)
             }
         )
 
     except Exception as e:
         logger.exception(f"Error in prompt to video pipeline for project {project_id}")
+        storage_service.cleanup_job_temp_files(job_id)
         update_job_sync(job_id, "failed", 0, "Video generation failed", error_message=str(e))
 
 def run_regenerate_scene_pipeline(job_id: str, scene_id: str, new_prompt: Optional[str] = None):
@@ -498,12 +525,14 @@ def run_regenerate_scene_pipeline(job_id: str, scene_id: str, new_prompt: Option
             scene.status = "completed"
             session.commit()
 
+        storage_service.cleanup_job_temp_files(job_id)
         update_job_sync(
             job_id, "completed", 100,
-            "Scene successfully regenerated!",
+            "Scene successfully regenerated in external storage!",
             result_data={"scene_id": scene_id, "video_path": str(v_path)}
         )
     except Exception as e:
         logger.exception(f"Error regenerating scene {scene_id}")
+        storage_service.cleanup_job_temp_files(job_id)
         update_job_sync(job_id, "failed", 0, "Scene regeneration failed", error_message=str(e))
 

@@ -11,11 +11,91 @@ class Settings(BaseSettings):
     
     # Base directories
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
-    STORAGE_DIR: Path = BASE_DIR / "storage"
-    UPLOAD_DIR: Path = STORAGE_DIR / "uploads"
-    RENDERS_DIR: Path = STORAGE_DIR / "renders"
-    TEMP_DIR: Path = STORAGE_DIR / "temp"
-    ASSETS_DIR: Path = STORAGE_DIR / "assets"
+    
+    # External Local Media Storage Configuration
+    MEDIA_STORAGE_PATH: Path = Path(os.getenv("MEDIA_STORAGE_PATH", "D:/AI_Video_Storage"))
+    TEMP_MEDIA_PATH: Path = Path(os.getenv("TEMP_MEDIA_PATH", "D:/AI_Video_Temp"))
+    ENABLE_DRAFT_STORAGE: bool = True
+
+    @property
+    def STORAGE_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.media_storage_path
+        except Exception:
+            return self.MEDIA_STORAGE_PATH
+
+    @property
+    def UPLOAD_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.uploads_dir
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "uploads"
+
+    @property
+    def RENDERS_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.renders_dir
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "renders"
+
+    @property
+    def DRAFTS_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.drafts_dir
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "drafts"
+
+    @property
+    def THUMBNAILS_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.thumbnails_dir
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "thumbnails"
+
+    @property
+    def CACHE_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.cache_dir
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "cache"
+
+    @property
+    def ASSETS_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.media_storage_path / "assets"
+        except Exception:
+            return self.MEDIA_STORAGE_PATH / "assets"
+
+    @property
+    def TEMP_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.temp_processing_dir
+        except Exception:
+            return self.TEMP_MEDIA_PATH / "processing"
+
+    @property
+    def TEMP_PROCESSING_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.temp_processing_dir
+        except Exception:
+            return self.TEMP_MEDIA_PATH / "processing"
+
+    @property
+    def TEMP_CHUNKS_DIR(self) -> Path:
+        try:
+            from app.services.storage.storage_service import storage_service
+            return storage_service.temp_chunks_dir
+        except Exception:
+            return self.TEMP_MEDIA_PATH / "chunks"
     
     # Database - standard SQLite for reliable zero-latency local development
     DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'clipforge.db'}"
@@ -64,7 +144,3 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
-
-# Ensure directories exist
-for directory in [settings.STORAGE_DIR, settings.UPLOAD_DIR, settings.RENDERS_DIR, settings.TEMP_DIR, settings.ASSETS_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)

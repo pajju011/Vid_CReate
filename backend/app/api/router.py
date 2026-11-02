@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.routes import projects, uploads, generation, videos, clips, rendering, jobs, providers, scheduled
+from app.api.routes import projects, uploads, generation, videos, clips, rendering, jobs, providers, scheduled, storage
 
 api_router = APIRouter()
 
@@ -12,4 +12,5 @@ api_router.include_router(rendering.router)
 api_router.include_router(jobs.router)
 api_router.include_router(providers.router)
 api_router.include_router(scheduled.router)
+api_router.include_router(storage.router)
 

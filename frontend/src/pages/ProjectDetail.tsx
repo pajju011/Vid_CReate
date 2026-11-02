@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Download, RefreshCw, Film, CheckCircle2, AlertTriangle,
-  Clock, HardDrive, Maximize, Scissors, Sparkles, Layers, Video
+  Clock, HardDrive, Maximize, Scissors, Sparkles, Layers, Video, Trash2
 } from 'lucide-react';
 import { ProjectDetail, VideoAsset } from '../types';
 import { api } from '../services/api';
@@ -29,6 +29,18 @@ export const ProjectDetailPage: React.FC = () => {
   useEffect(() => {
     loadProject();
   }, [projectId]);
+
+  const handleDeleteAsset = async (assetId: string) => {
+    if (!window.confirm('Are you sure you want to delete this video file permanently from external storage?')) {
+      return;
+    }
+    try {
+      await api.deleteAsset(assetId);
+      await loadProject();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete video file');
+    }
+  };
 
   if (loading) {
     return (
@@ -167,6 +179,43 @@ export const ProjectDetailPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* External Storage Card */}
+          {finalAsset && (
+            <div className="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-3 shadow-xl">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-emerald-400" />
+                  External Local Storage
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Isolated Outside Repo
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs pt-1">
+                <div className="bg-[#0b0f17] p-2.5 rounded-lg border border-gray-800/80">
+                  <span className="text-[10px] text-gray-500 block uppercase font-bold">Physical Storage Path</span>
+                  <span className="font-mono text-gray-300 text-[11px] break-all block mt-0.5">
+                    {finalAsset.storage_path}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-gray-400 text-xs">
+                    File Size: <strong className="text-gray-200">{((finalAsset.file_size_bytes || 0) / (1024 * 1024)).toFixed(2)} MB</strong>
+                  </span>
+                  <button
+                    onClick={() => handleDeleteAsset(finalAsset.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete File</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Scenes or Clips Timeline */}
@@ -256,6 +305,43 @@ export const ProjectDetailPage: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* External Storage Card */}
+          {finalAsset && (
+            <div className="bg-[#111827] border border-gray-800 rounded-2xl p-5 space-y-3 shadow-xl">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-emerald-400" />
+                  External Local Storage
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Isolated Outside Repo
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs pt-1">
+                <div className="bg-[#0b0f17] p-2.5 rounded-lg border border-gray-800/80">
+                  <span className="text-[10px] text-gray-500 block uppercase font-bold">Physical Storage Path</span>
+                  <span className="font-mono text-gray-300 text-[11px] break-all block mt-0.5">
+                    {finalAsset.storage_path}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-gray-400 text-xs">
+                    File Size: <strong className="text-gray-200">{((finalAsset.file_size_bytes || 0) / (1024 * 1024)).toFixed(2)} MB</strong>
+                  </span>
+                  <button
+                    onClick={() => handleDeleteAsset(finalAsset.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete File</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

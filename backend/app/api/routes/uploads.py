@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.entities import Project, VideoAsset
 from app.schemas.schemas import VideoAssetResponse
 from app.utils.ffprobe import inspect_media
+from app.services.storage.storage_service import storage_service
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -36,20 +37,16 @@ def upload_video(
         project_id = proj.id
 
     secure_name, ext = generate_secure_filename(file.filename)
-    dest_path = settings.UPLOAD_DIR / secure_name
-
     try:
-        with open(dest_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        dest_path = storage_service.save_upload(file.file, secure_name, project_id)
     except Exception as e:
-        logger.error(f"Failed to write uploaded file: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save uploaded file to disk.")
+        logger.error(f"Failed to save uploaded file to external storage: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file to external storage.")
 
     try:
         meta = inspect_media(dest_path)
     except ValueError as e:
-        if dest_path.exists():
-            dest_path.unlink()
+        storage_service.delete_file(dest_path)
         raise HTTPException(status_code=400, detail=f"Invalid media file: {str(e)}")
 
     asset = VideoAsset(
