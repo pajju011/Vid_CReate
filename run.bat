@@ -12,7 +12,7 @@ echo.
 
 cd /d "%~dp0"
 
-:: 1. Verify Python Virtual Environment
+REM 1. Verify Python Virtual Environment
 if not exist "%~dp0venv\Scripts\python.exe" (
     echo [ERROR] Python virtual environment not found at .\venv
     echo Please make sure the venv directory exists and Python is installed.
@@ -21,17 +21,17 @@ if not exist "%~dp0venv\Scripts\python.exe" (
     exit /b 1
 )
 
-:: 2. Verify Node / npm
+REM 2. Verify Node / npm
 where npm >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] 'npm' was not found in your system PATH.
-    echo Please install Node.js (https://nodejs.org/) to run the frontend.
+    echo [ERROR] npm was not found in your system PATH.
+    echo Please install Node.js from https://nodejs.org to run the frontend.
     echo.
     pause
     exit /b 1
 )
 
-:: 3. Ensure External Storage Directories on D: Drive
+REM 3. Ensure External Storage Directories on D: Drive
 if exist "D:\" (
     if not exist "D:\AI_Video_Storage" (
         echo [INFO] Ensuring external media storage directory: D:\AI_Video_Storage
@@ -42,12 +42,12 @@ if exist "D:\" (
         mkdir "D:\AI_Video_Temp" 2>nul
     )
 ) else (
-    echo [WARNING] D: drive not detected. Fallback storage in %%TEMP%% will be used.
+    echo [WARNING] D: drive not detected. Fallback storage in TEMP will be used.
 )
 
-:: 4. Check frontend dependencies
+REM 4. Check frontend dependencies
 if not exist "%~dp0frontend\node_modules" (
-    echo [INFO] Installing frontend dependencies (one-time setup)...
+    echo [INFO] Installing frontend dependencies - one-time setup...
     cd /d "%~dp0frontend"
     call npm install
     cd /d "%~dp0"
@@ -55,13 +55,13 @@ if not exist "%~dp0frontend\node_modules" (
 
 echo.
 echo [1/3] Starting FastAPI Backend on http://127.0.0.1:8000 ...
-start "ClipForge AI - Backend (Port 8000)" cmd /k "cd /d "%~dp0backend" && ..\venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+start "ClipForge AI Backend" /D "%~dp0backend" cmd /k "..\venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
 
 echo [2/3] Starting Vite Frontend on http://localhost:5173 ...
-start "ClipForge AI - Frontend (Port 5173)" cmd /k "cd /d "%~dp0frontend" && npm run dev"
+start "ClipForge AI Frontend" /D "%~dp0frontend" cmd /k "npm run dev"
 
 echo [3/3] Waiting for servers to initialize...
-timeout /t 4 /nobreak >nul
+ping -n 5 127.0.0.1 >nul
 
 echo Opening browser at http://localhost:5173 ...
 start http://localhost:5173
@@ -78,7 +78,7 @@ echo.
 echo Press any key in this window to stop all ClipForge AI servers...
 echo ====================================================================
 echo.
-pause >nul
+pause
 
 echo.
 echo [INFO] Shutting down ClipForge AI servers...
@@ -89,5 +89,5 @@ for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :5173 ^| findstr LISTE
     taskkill /f /pid %%a >nul 2>nul
 )
 echo [INFO] ClipForge AI stopped cleanly.
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 exit /b 0
