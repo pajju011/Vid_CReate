@@ -62,6 +62,8 @@ class Scene(Base):
     narration: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending") # pending | generating | completed | failed
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    consistency_anchor: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     asset_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     audio_asset_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -121,3 +123,17 @@ class Transcript(Base):
 
     # Relationships
     asset: Mapped["VideoAsset"] = relationship("VideoAsset", back_populates="transcript")
+
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(50), default="prompt_to_video") # prompt_to_video | video_to_shorts
+    schedule_cron: Mapped[Optional[str]] = mapped_column(String(50), nullable=True) # e.g. "daily", "hourly", "weekly"
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    payload: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
