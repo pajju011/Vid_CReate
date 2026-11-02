@@ -34,11 +34,11 @@ if %errorlevel% neq 0 (
 :: 3. Ensure External Storage Directories on D: Drive
 if exist "D:\" (
     if not exist "D:\AI_Video_Storage" (
-        echo [INFO] Creating external media storage directory: D:\AI_Video_Storage
+        echo [INFO] Ensuring external media storage directory: D:\AI_Video_Storage
         mkdir "D:\AI_Video_Storage" 2>nul
     )
     if not exist "D:\AI_Video_Temp" (
-        echo [INFO] Creating external temporary directory: D:\AI_Video_Temp
+        echo [INFO] Ensuring external temporary directory: D:\AI_Video_Temp
         mkdir "D:\AI_Video_Temp" 2>nul
     )
 ) else (
@@ -75,8 +75,19 @@ echo   - Backend API Docs: http://127.0.0.1:8000/docs
 echo   - Storage Location: D:\AI_Video_Storage
 echo   - Temp Processing:  D:\AI_Video_Temp
 echo.
-echo Close the individual terminal windows to stop the servers.
+echo Press any key in this window to stop all ClipForge AI servers...
 echo ====================================================================
 echo.
-pause
+pause >nul
 
+echo.
+echo [INFO] Shutting down ClipForge AI servers...
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :8000 ^| findstr LISTENING') do (
+    taskkill /f /pid %%a >nul 2>nul
+)
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :5173 ^| findstr LISTENING') do (
+    taskkill /f /pid %%a >nul 2>nul
+)
+echo [INFO] ClipForge AI stopped cleanly.
+timeout /t 2 /nobreak >nul
+exit /b 0
