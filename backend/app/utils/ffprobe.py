@@ -84,3 +84,4 @@ def inspect_media(file_path: Path) -> Dict[str, Any]:
         "format_name": format_info.get("format_name"),
         "raw_streams": streams
     }
+

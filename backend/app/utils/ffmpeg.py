@@ -84,12 +84,7 @@ def convert_to_vertical(
     Convert video to vertical (9:16) format with optional blurred background,
     face/smart crop, and subtitle burning.
     """
-    filter_complex = []
-
     if mode == "blurred_background":
-        # Background: scale to fill 1080x1920, crop, boxblur
-        # Foreground: scale to fit 1080x1920 while preserving aspect ratio
-        # Overlay: place foreground in center of blurred background
         vf = (
             f"[0:v]split=2[bg_src][fg_src];"
             f"[bg_src]scale={target_width}:{target_height}:force_original_aspect_ratio=increase,"
@@ -98,22 +93,18 @@ def convert_to_vertical(
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2[outv]"
         )
     elif mode == "smart" and crop_x_offset is not None:
-        # Scale height to target_height, then crop width with offset
-        # crop=target_width:target_height:x:0
         vf = (
             f"[0:v]scale=-1:{target_height},"
             f"crop={target_width}:{target_height}:'min(max(0, (in_w * {crop_x_offset}) - {target_width}/2), in_w - {target_width})':0[outv]"
         )
-    else: # center crop
+    else:
         vf = (
             f"[0:v]scale=-1:{target_height},"
             f"crop={target_width}:{target_height}:(in_w-{target_width})/2:0[outv]"
         )
 
-    # Subtitles burning if provided
     final_v_label = "[outv]"
     if subtitle_ass_path and subtitle_ass_path.exists():
-        # Escape path for FFmpeg filter (replace backslashes and colons on Windows)
         escaped_sub_path = str(subtitle_ass_path).replace("\\", "/").replace(":", "\\:")
         vf += f";{final_v_label}ass='{escaped_sub_path}'[subv]"
         final_v_label = "[subv]"
@@ -121,8 +112,7 @@ def convert_to_vertical(
     args = ["-i", str(input_path)]
 
     if bg_music_path and bg_music_path.exists():
-        args += ["-stream_loop", "-1", "-i", str(bg_music_path)]
-        # Mix audio: keep original audio volume at 1.0, background music ducked at bg_music_volume
+        args += ["-i", str(bg_music_path)]
         audio_filter = f"[0:a]volume=1.0[a0];[1:a]volume={bg_music_volume}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[outa]"
         filter_complex_str = f"{vf};{audio_filter}"
         args += [
@@ -134,15 +124,15 @@ def convert_to_vertical(
         args += [
             "-filter_complex", vf,
             "-map", final_v_label,
-            "-map", "0:a?" # include original audio if present
+            "-map", "0:a?"
         ]
 
     args += [
         "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "21",
+        "-preset", "veryfast",
+        "-crf", "22",
         "-c:a", "aac",
-        "-b:a", "160k",
+        "-b:a", "128k",
         "-pix_fmt", "yuv420p",
         str(output_path)
     ]
@@ -166,8 +156,6 @@ def assemble_scenes(
     if not scene_video_paths:
         return False
 
-    # Create temporary concat list or filter_complex
-    # Filter complex concatenation ensures uniform scale and framerate across scenes
     args = []
     for vp in scene_video_paths:
         args += ["-i", str(vp)]
@@ -189,15 +177,13 @@ def assemble_scenes(
         filter_parts.append(f"{current_v}ass='{escaped_sub_path}'[vfinal]")
         current_v = "[vfinal]"
 
-    # Audio handling
     music_idx = None
     if bg_music_path and bg_music_path.exists():
-        args += ["-stream_loop", "-1", "-i", str(bg_music_path)]
-        music_idx = n # index of bg music
+        args += ["-i", str(bg_music_path)]
+        music_idx = n
         filter_parts.append(f"[{music_idx}:a]volume=0.18[bgm]")
 
     filter_complex_str = ";".join(filter_parts)
-
     args += ["-filter_complex", filter_complex_str, "-map", current_v]
 
     if music_idx is not None:
@@ -205,10 +191,10 @@ def assemble_scenes(
 
     args += [
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "ultrafast",
         "-crf", "22",
         "-c:a", "aac",
-        "-b:a", "160k",
+        "-b:a", "128k",
         "-pix_fmt", "yuv420p",
         str(output_path)
     ]

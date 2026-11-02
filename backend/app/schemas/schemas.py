@@ -167,3 +167,4 @@ class RenderProjectRequest(BaseModel):
     resolution: str = "1080x1920"
     caption_style: str = "bold_yellow"
     background_music: Optional[str] = None
+

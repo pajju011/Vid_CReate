@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from sqlalchemy import String, Integer, Float, DateTime, Text, JSON, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -7,6 +7,9 @@ from app.db.session import Base
 
 def gen_uuid() -> str:
     return uuid.uuid4().hex
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 class Project(Base):
     __tablename__ = "projects"
@@ -18,8 +21,8 @@ class Project(Base):
     platform: Mapped[str] = mapped_column(String(50), default="instagram_reels") # instagram_reels | youtube_shorts
     status: Mapped[str] = mapped_column(String(50), default="draft") # draft | processing | ready | error
     settings: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     assets: Mapped[List["VideoAsset"]] = relationship("VideoAsset", back_populates="project", cascade="all, delete-orphan")
@@ -40,7 +43,7 @@ class VideoAsset(Base):
     height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="assets")
@@ -62,7 +65,7 @@ class Scene(Base):
     asset_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     audio_asset_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="scenes")
@@ -83,7 +86,7 @@ class Clip(Base):
     crop_mode: Mapped[str] = mapped_column(String(50), default="smart") # smart | center | blurred_background
     caption_style: Mapped[str] = mapped_column(String(50), default="bold_yellow") # bold_yellow | clean_minimal | creator_box | cinematic
     rendered_asset_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="clips")
@@ -100,8 +103,8 @@ class Job(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     result_data: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="jobs")
@@ -114,7 +117,7 @@ class Transcript(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     segments_json: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, default=list) # [{start, end, text, words: [{word, start, end}]}]
     language: Mapped[str] = mapped_column(String(10), default="en")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     # Relationships
     asset: Mapped["VideoAsset"] = relationship("VideoAsset", back_populates="transcript")

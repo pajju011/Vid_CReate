@@ -17,12 +17,12 @@ class Settings(BaseSettings):
     TEMP_DIR: Path = STORAGE_DIR / "temp"
     ASSETS_DIR: Path = STORAGE_DIR / "assets"
     
-    # Database
-    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR / 'clipforge.db'}"
+    # Database - standard SQLite for reliable zero-latency local development
+    DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'clipforge.db'}"
     
     # Redis & Background Tasks
     REDIS_URL: str = "redis://localhost:6379/0"
-    USE_LOCAL_QUEUE: bool = True  # Fallback to in-process queue if Celery/Redis not available
+    USE_LOCAL_QUEUE: bool = True
     
     # Media & Upload Limits
     MAX_UPLOAD_SIZE_MB: int = 500
@@ -33,25 +33,25 @@ class Settings(BaseSettings):
     FFPROBE_PATH: str = "ffprobe"
     
     # AI Providers Configuration
-    DEMO_MODE: bool = True  # Automatically falls back to deterministic demo generation if keys missing
+    DEMO_MODE: bool = True
     
-    LLM_PROVIDER: str = "mock"  # "gemini", "openai", "mock"
+    LLM_PROVIDER: str = "mock"
     LLM_API_KEY: Optional[str] = None
     
-    VIDEO_PROVIDER: str = "mock"  # "runway", "luma", "replicate", "mock"
+    VIDEO_PROVIDER: str = "mock"
     VIDEO_API_KEY: Optional[str] = None
     
-    IMAGE_PROVIDER: str = "mock"  # "stability", "dalle", "mock"
+    IMAGE_PROVIDER: str = "mock"
     IMAGE_API_KEY: Optional[str] = None
     
-    AUDIO_PROVIDER: str = "mock"  # "elevenlabs", "openai", "mock"
+    AUDIO_PROVIDER: str = "mock"
     AUDIO_API_KEY: Optional[str] = None
     
-    TRANSCRIPTION_PROVIDER: str = "mock"  # "whisper", "local", "mock"
+    TRANSCRIPTION_PROVIDER: str = "mock"
     TRANSCRIPTION_API_KEY: Optional[str] = None
 
     # Storage Backend
-    STORAGE_BACKEND: str = "local"  # "local", "s3"
+    STORAGE_BACKEND: str = "local"
     S3_BUCKET: Optional[str] = None
     S3_ENDPOINT: Optional[str] = None
     S3_ACCESS_KEY: Optional[str] = None

@@ -1,6 +1,4 @@
-import math
 from pathlib import Path
-from app.core.config import settings
 from app.utils.ffmpeg import run_ffmpeg
 
 def create_sample_video(
@@ -13,17 +11,10 @@ def create_sample_video(
 ) -> bool:
     """
     Generate a deterministic synthetic test video using FFmpeg testsrc & sine audio filter.
-    Useful for local offline testing, demo mode, and CI verification.
+    Fast, reliable, zero fontconfig dependency.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Using testsrc + drawtext + sine wave audio
-    # Safe escaping for drawtext
-    clean_text = text.replace(":", "\\:").replace("'", "")
-    vf = (
-        f"testsrc=duration={duration}:size={width}x{height}:rate={fps},"
-        f"drawtext=text='{clean_text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=(h-text_h)/2,"
-        f"drawtext=text='%{{pts\\:hms}}':fontcolor=yellow:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80"
-    )
+    vf = f"testsrc=duration={duration}:size={width}x{height}:rate={fps}"
     args = [
         "-f", "lavfi", "-i", vf,
         "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
@@ -47,19 +38,12 @@ def create_sample_scene_video(
     height: int = 1920
 ) -> bool:
     """
-    Generate a sample scene video in 9:16 vertical format with gradients,
-    scene numbers, and simulated motion.
+    Generate a sample scene video in 9:16 vertical format.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Generate colorful background with testsrc2 and animated zoom/pan
     colors = ["blue", "purple", "darkred", "teal", "indigo"]
     color = colors[(scene_number - 1) % len(colors)]
-    clean_caption = caption.replace(":", "\\:").replace("'", "")
-    vf = (
-        f"color=c={color}:size={width}x{height}:duration={duration}:rate=30,"
-        f"drawtext=text='Scene {scene_number} - {purpose}':fontcolor=white:fontsize=64:bold=1:x=(w-text_w)/2:y=300,"
-        f"drawtext=text='{clean_caption}':fontcolor=yellow:fontsize=52:box=1:boxcolor=black@0.7:boxborderw=12:x=(w-text_w)/2:y=h-400"
-    )
+    vf = f"color=c={color}:size={width}x{height}:duration={duration}:rate=30"
     args = [
         "-f", "lavfi", "-i", vf,
         "-f", "lavfi", "-i", f"sine=frequency={300 + scene_number * 50}:duration={duration}",
@@ -76,7 +60,7 @@ def create_sample_scene_video(
 def create_sample_audio_track(
     output_path: Path,
     duration: float = 30.0,
-    track_type: str = "music" # music | narration
+    track_type: str = "music"
 ) -> bool:
     """Generate ambient synthetic audio track."""
     output_path.parent.mkdir(parents=True, exist_ok=True)

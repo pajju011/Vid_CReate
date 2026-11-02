@@ -51,3 +51,4 @@ class SceneDetector:
         return cuts
 
 scene_detector = SceneDetector()
+

@@ -57,7 +57,7 @@ class SubtitleGenerator:
             "primary": "&H00FFFFFF",
             "secondary": "&H000000FF",
             "outline": "&H00000000",
-            "back": "&H90000000",      # Translucent background box
+            "back": "&H90000000",
             "bold": "-1",
             "italic": "0",
             "outline_w": "1",
@@ -68,7 +68,7 @@ class SubtitleGenerator:
         "cinematic": {
             "fontname": "Georgia",
             "fontsize": "48",
-            "primary": "&H00E0E0E0",   # Soft ivory
+            "primary": "&H00E0E0E0",
             "secondary": "&H000000FF",
             "outline": "&H00202020",
             "back": "&H00000000",
@@ -91,10 +91,6 @@ class SubtitleGenerator:
         video_width: int = 1080,
         video_height: int = 1920
     ) -> Path:
-        """
-        Generate an ASS subtitle file from segment timestamp data.
-        time_offset is subtracted from timestamps to align with trimmed clip segments.
-        """
         output_path.parent.mkdir(parents=True, exist_ok=True)
         style = self.ASS_STYLES.get(style_preset, self.ASS_STYLES["bold_yellow"])
 
@@ -120,8 +116,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if not text:
                 continue
-
-            # Bounds checking
             if seg_end <= 0:
                 continue
             if max_duration and seg_start >= max_duration:
@@ -133,14 +127,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if end_clamped <= start_clamped:
                 continue
 
-            # Check if word timestamps exist for animated word highlighting
-            words = seg.get("words", [])
-            if words and len(words) > 1 and style_preset == "bold_yellow":
-                # Create word-level karaoke or uppercase emphasis
-                text_formatted = text.upper()
-            else:
-                text_formatted = text
-
+            text_formatted = text.upper() if style_preset == "bold_yellow" else text
             start_str = format_ass_time(start_clamped)
             end_str = format_ass_time(end_clamped)
             events.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{text_formatted}")
@@ -156,7 +143,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         time_offset: float = 0.0,
         max_duration: Optional[float] = None
     ) -> Path:
-        """Generate a standard SRT subtitle file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         index = 1

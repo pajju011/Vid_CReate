@@ -18,3 +18,4 @@ def setup_logging():
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
 logger = logging.getLogger("clipforge")
+

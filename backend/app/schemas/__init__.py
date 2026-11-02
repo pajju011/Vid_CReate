@@ -11,3 +11,4 @@ __all__ = [
     "StructuredScenePlan", "ProductionPlan", "PromptPlanningRequest", "SceneUpdateRequest",
     "GenerateClipsRequest", "ClipUpdateRequest", "RenderProjectRequest"
 ]
+
