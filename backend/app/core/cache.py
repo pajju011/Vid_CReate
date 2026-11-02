@@ -78,3 +78,4 @@ class AssetCache:
             return audio_path
 
 asset_cache = AssetCache()
+

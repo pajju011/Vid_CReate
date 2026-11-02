@@ -30,6 +30,17 @@ class BaseVideoProvider(ABC):
         pass
 
     @abstractmethod
+    def generate_video_from_image(
+        self,
+        image_path: Path,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16"
+    ) -> Dict[str, Any]:
+        """Animate a source character or product image into a motion video clip."""
+        pass
+
+    @abstractmethod
     def get_generation_status(self, job_id: str) -> Dict[str, Any]:
         """Check status of remote generation job."""
         pass
@@ -42,6 +53,12 @@ class BaseVideoProvider(ABC):
     @abstractmethod
     def cancel_generation(self, job_id: str) -> bool:
         """Cancel ongoing generation job."""
+        pass
+
+class BaseImageProvider(ABC):
+    @abstractmethod
+    def generate_image(self, prompt: str, aspect_ratio: str = "9:16", style: str = "cinematic") -> Dict[str, Any]:
+        """Generate a still keyframe image for character anchoring or image-to-video."""
         pass
 
 class BaseAudioProvider(ABC):

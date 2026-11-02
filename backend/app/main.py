@@ -6,13 +6,17 @@ from app.core.logging import setup_logging, logger
 from app.db.session import init_db
 from app.api.router import api_router
 
+from app.services.scheduler.scheduler_service import scheduler_service
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Initializing ClipForge AI backend...")
     init_db()
     logger.info("Database initialized successfully.")
+    scheduler_service.start()
     yield
+    scheduler_service.stop()
     logger.info("Shutting down ClipForge AI backend...")
 
 app = FastAPI(

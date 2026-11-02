@@ -12,6 +12,8 @@ from app.services.cropping.crop_detector import crop_detector
 from app.services.subtitles.subtitle_generator import subtitle_generator
 from app.services.clip_selection.clip_ranker import clip_ranker
 from app.services.quality_control.qc_service import qc_service
+from app.services.consistency.consistency_engine import consistency_engine
+from app.core.cache import asset_cache
 from app.providers.registry import providers
 
 def update_job_sync(
@@ -255,6 +257,13 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             style=prompt_data.get("visual_style", "cinematic")
         )
 
+        # Enforce Character Consistency, Camera Movement Continuity & Lighting
+        storyboard = consistency_engine.enrich_storyboard_for_consistency(
+            storyboard=storyboard,
+            visual_style=prompt_data.get("visual_style", "cinematic"),
+            user_prompt=prompt_data.get("prompt", "")
+        )
+
         scene_ids = []
         with SessionLocal() as session:
             for s in storyboard:
@@ -267,6 +276,7 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                     camera_movement=s.get("camera_movement", "slow_push_in"),
                     narration=s.get("narration"),
                     caption=s.get("caption"),
+                    consistency_anchor=s.get("consistency_anchor"),
                     status="pending"
                 )
                 session.add(sc)
@@ -274,8 +284,12 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 scene_ids.append(sc.id)
             session.commit()
 
-        # 2. Asset Generation for Scenes
-        update_job_sync(job_id, "running", 40, f"Generating visual assets for {len(scene_ids)} scenes...")
+        # 2. Asset Generation for Scenes with Automatic Quality Control & Retry
+        update_job_sync(
+            job_id, "running", 40,
+            f"Generating visual assets for {len(scene_ids)} scenes...",
+            result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": 0}
+        )
         video_provider = providers.get_video_provider()
         scene_video_paths = []
 
@@ -283,18 +297,54 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         target_h = 1920 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1080
 
         for idx, sid in enumerate(scene_ids, 1):
-            update_job_sync(job_id, "running", 40 + int(idx * 25 / len(scene_ids)), f"Generating scene {idx} of {len(scene_ids)}...")
+            update_job_sync(
+                job_id, "running",
+                40 + int(idx * 25 / len(scene_ids)),
+                f"Generating scene {idx} of {len(scene_ids)}...",
+                result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": idx - 1, "current_scene": idx}
+            )
             with SessionLocal() as session:
                 sc = session.query(Scene).filter(Scene.id == sid).first()
                 duration = sc.duration
                 prompt_text = sc.prompt
 
-            gen_result = video_provider.generate_video(
-                prompt=prompt_text,
-                duration_seconds=duration,
-                aspect_ratio=prompt_data.get("aspect_ratio", "9:16")
-            )
-            v_path = Path(gen_result.get("video_path"))
+            # Scene generation with automatic QC verification and retry
+            v_path = None
+            max_scene_retries = 2
+            for attempt in range(max_scene_retries + 1):
+                try:
+                    if prompt_data.get("image_keyframe_path") and Path(prompt_data["image_keyframe_path"]).exists():
+                        gen_result = video_provider.generate_video_from_image(
+                            image_path=Path(prompt_data["image_keyframe_path"]),
+                            prompt=prompt_text,
+                            duration_seconds=duration,
+                            aspect_ratio=prompt_data.get("aspect_ratio", "9:16")
+                        )
+                    else:
+                        gen_result = video_provider.generate_video(
+                            prompt=prompt_text,
+                            duration_seconds=duration,
+                            aspect_ratio=prompt_data.get("aspect_ratio", "9:16")
+                        )
+                    candidate_v_path = Path(gen_result.get("video_path"))
+
+                    # Strict per-scene QC check
+                    scene_qc = qc_service.evaluate_video(
+                        candidate_v_path,
+                        expected_aspect_ratio=prompt_data.get("aspect_ratio", "9:16"),
+                        min_duration=1.0
+                    )
+                    if scene_qc["status"] == "passed":
+                        v_path = candidate_v_path
+                        break
+                    else:
+                        logger.warning(f"Scene {idx} failed QC on attempt {attempt + 1}: {scene_qc.get('issues')}")
+                except Exception as e:
+                    logger.warning(f"Scene {idx} generation error on attempt {attempt + 1}: {e}")
+
+            if not v_path or not v_path.exists():
+                raise RuntimeError(f"Scene {idx} failed to generate and pass quality control after retries.")
+
             scene_video_paths.append(v_path)
 
             with SessionLocal() as session:
@@ -413,3 +463,47 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
     except Exception as e:
         logger.exception(f"Error in prompt to video pipeline for project {project_id}")
         update_job_sync(job_id, "failed", 0, "Video generation failed", error_message=str(e))
+
+def run_regenerate_scene_pipeline(job_id: str, scene_id: str, new_prompt: Optional[str] = None):
+    """Regenerate a single scene clip without affecting approved scenes."""
+    try:
+        update_job_sync(job_id, "running", 20, f"Regenerating scene asset {scene_id}...")
+        with SessionLocal() as session:
+            scene = session.query(Scene).filter(Scene.id == scene_id).first()
+            if not scene:
+                raise ValueError(f"Scene {scene_id} not found.")
+
+            if new_prompt:
+                scene.prompt = new_prompt
+            prompt_text = scene.prompt
+            duration = scene.duration
+            project_id = scene.project_id
+            scene.status = "generating"
+            session.commit()
+
+        video_provider = providers.get_video_provider()
+        gen_result = video_provider.generate_video(
+            prompt=prompt_text,
+            duration_seconds=duration,
+            aspect_ratio="9:16"
+        )
+        v_path = Path(gen_result.get("video_path"))
+
+        qc_res = qc_service.evaluate_video(v_path, expected_aspect_ratio="9:16", min_duration=1.0)
+        if qc_res["status"] != "passed":
+            raise RuntimeError(f"Regenerated scene failed QC checks: {qc_res.get('issues')}")
+
+        with SessionLocal() as session:
+            scene = session.query(Scene).filter(Scene.id == scene_id).first()
+            scene.status = "completed"
+            session.commit()
+
+        update_job_sync(
+            job_id, "completed", 100,
+            "Scene successfully regenerated!",
+            result_data={"scene_id": scene_id, "video_path": str(v_path)}
+        )
+    except Exception as e:
+        logger.exception(f"Error regenerating scene {scene_id}")
+        update_job_sync(job_id, "failed", 0, "Scene regeneration failed", error_message=str(e))
+

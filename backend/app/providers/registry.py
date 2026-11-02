@@ -4,7 +4,9 @@ from app.providers.base import (
     BaseLLMProvider, BaseVideoProvider, BaseAudioProvider, BaseTranscriptionProvider
 )
 from app.providers.llm.llm_providers import MockLLMProvider, GeminiLLMProvider
-from app.providers.video.video_providers import MockVideoProvider, LumaVideoProvider
+from app.providers.video.video_providers import (
+    MockVideoProvider, LumaVideoProvider, RunwayVideoProvider, KlingVideoProvider, PikaVideoProvider
+)
 from app.providers.audio.audio_providers import MockAudioProvider, ElevenLabsAudioProvider, OpenAIAudioProvider
 from app.providers.transcription.transcription_providers import MockTranscriptionProvider, WhisperAPITranscriptionProvider
 
@@ -19,6 +21,12 @@ class ProviderRegistry:
     def get_video_provider() -> BaseVideoProvider:
         if settings.VIDEO_PROVIDER == "luma" and settings.VIDEO_API_KEY:
             return LumaVideoProvider(api_key=settings.VIDEO_API_KEY)
+        elif settings.VIDEO_PROVIDER == "runway" and settings.VIDEO_API_KEY:
+            return RunwayVideoProvider(api_key=settings.VIDEO_API_KEY)
+        elif settings.VIDEO_PROVIDER == "kling" and settings.VIDEO_API_KEY:
+            return KlingVideoProvider(api_key=settings.VIDEO_API_KEY)
+        elif settings.VIDEO_PROVIDER == "pika" and settings.VIDEO_API_KEY:
+            return PikaVideoProvider(api_key=settings.VIDEO_API_KEY)
         return MockVideoProvider()
 
     @staticmethod

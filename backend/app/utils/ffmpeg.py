@@ -211,8 +211,9 @@ def assemble_scenes(
         voice_idx = extra_input_idx
         music_idx = extra_input_idx + 1
         filter_parts.append(
-            f"[{voice_idx}:a]volume=1.0[voice];[{music_idx}:a]volume=0.15[bgm];"
-            f"[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=0,apad[outa]"
+            f"[{voice_idx}:a]asplit=2[voice_main][voice_side];"
+            f"[{music_idx}:a][voice_side]sidechaincompress=threshold=0.08:ratio=5:attack=150:release=800[ducked_bgm];"
+            f"[voice_main][ducked_bgm]amix=inputs=2:duration=longest:dropout_transition=0,apad[outa]"
         )
         final_a = "[outa]"
     elif has_voiceover:
@@ -248,3 +249,63 @@ def assemble_scenes(
 
     success, _ = run_ffmpeg(args)
     return success
+
+def generate_image_to_video_motion(
+    image_path: Path,
+    output_path: Path,
+    duration: float = 4.0,
+    motion_type: str = "slow_zoom_in",
+    target_width: int = 1080,
+    target_height: int = 1920,
+    fps: int = 30
+) -> bool:
+    """
+    Converts a still character/product image into a high-definition motion video
+    using smooth subpixel camera pan and Ken Burns zoom interpolation.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    total_frames = max(15, int(fps * duration))
+
+    # Calculate scale factor for smooth zoom headroom
+    scale_w = int(target_width * 1.25)
+    scale_h = int(target_height * 1.25)
+
+    if motion_type == "slow_zoom_out":
+        zoom_expr = "max(1.25-0.0012*on, 1.0)"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif motion_type == "pan_right":
+        zoom_expr = "1.15"
+        x_expr = "min((iw-iw/zoom)*(on/d), iw-iw/zoom)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    else: # default: slow_zoom_in / push_in
+        zoom_expr = "min(zoom+0.0012, 1.25)"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+
+    filter_str = (
+        f"[0:v]scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
+        f"crop={scale_w}:{scale_h},"
+        f"zoompan=z='{zoom_expr}':d={total_frames}:x='{x_expr}':y='{y_expr}':"
+        f"s={target_width}x{target_height}:fps={fps}[v]"
+    )
+
+    args = [
+        "-loop", "1", "-i", str(image_path),
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-filter_complex", filter_str,
+        "-map", "[v]",
+        "-map", "1:a",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-t", str(duration),
+        str(output_path)
+    ]
+
+    success, _ = run_ffmpeg(args)
+    return success
+

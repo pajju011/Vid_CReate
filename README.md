@@ -20,18 +20,21 @@ ClipForge AI Architecture
 │   └── Provider & Engine Manager (Cloud API keys & local engine diagnostics)
 │
 ├── Backend (FastAPI + SQLAlchemy + Pydantic v2)
-│   ├── REST API (/api/projects, /api/uploads, /api/generation, /api/videos, /api/clips, /api/jobs)
-│   ├── Multi-Provider Adapters (Google Gemini, OpenAI, Luma Dream Machine, ElevenLabs, Whisper)
-│   ├── Local Deterministic Engine (Offline FFmpeg synthesis & local mock planner)
-│   └── Multi-Threaded Background Queue / Celery + Redis
+│   ├── REST API (/api/projects, /api/uploads, /api/generation, /api/videos, /api/clips, /api/jobs, /api/schedules)
+│   ├── Multi-Provider Adapters (Google Gemini, OpenAI, Luma Dream Machine, Runway Gen-3, Kling AI, Pika, ElevenLabs, Whisper)
+│   ├── Consistency Engine (Character visual anchor locking, lighting continuity & camera motion planning)
+│   ├── Content-Addressable Asset Cache (SHA-256 deduplication for instant zero-cost retrieval)
+│   ├── Background Scheduler Service (Persistent automated cron generation)
+│   └── Multi-Threaded Queue with Concurrency Throttling & Exponential Backoff Retries
 │
 ├── Video Processing Engine (FFmpeg & OpenCV)
+│   ├── Image-to-Video Ken Burns Motion Engine (Dynamic subpixel pan & zoom interpolation)
 │   ├── Smart Vertical Cropping (Face & subject detection with temporal smoothing)
 │   ├── Blurred Background Padding ([bg_src]boxblur + [fg_src]overlay)
 │   ├── Timed Subtitle Burning (ASS & SRT with Bold Yellow, Clean Minimal, Creator Box presets)
-│   └── Audio Engine (Voiceover synthesis, background music ducking, AAC encoding)
+│   └── Audio Engine (Voiceover synthesis, sidechain dynamic audio ducking, AAC encoding)
 │
-└── Technical Quality Control (FFprobe validation, aspect ratio, duration, audio stream checks)
+└── Technical Quality Control (FFprobe validation, aspect ratio, duration, audio stream checks, auto-regeneration)
 ```
 
 ---

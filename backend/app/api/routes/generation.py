@@ -101,3 +101,24 @@ def update_scene(scene_id: str, payload: SceneUpdateRequest, db: Session = Depen
     db.commit()
     db.refresh(scene)
     return scene
+
+@router.post("/scenes/{scene_id}/regenerate", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+def regenerate_scene(scene_id: str, new_prompt: str = None, db: Session = Depends(get_db)):
+    """Trigger background regeneration for an individual scene."""
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found.")
+
+    job = Job(
+        project_id=scene.project_id,
+        job_type="scene_regeneration",
+        status="pending",
+        progress=0,
+        current_step=f"Queued scene {scene.scene_number} regeneration..."
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    local_queue.enqueue_scene_regeneration(job.id, scene.id, new_prompt)
+    return job

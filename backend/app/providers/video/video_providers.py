@@ -5,15 +5,31 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.core.logging import logger
+from app.core.cache import asset_cache
 from app.providers.base import BaseVideoProvider
 from app.utils.sample_media import create_sample_scene_video
+from app.utils.ffmpeg import generate_image_to_video_motion
 
 class MockVideoProvider(BaseVideoProvider):
     """
-    Local video generator that creates deterministic vertical scene videos
-    using FFmpeg. Used for offline testing and demo mode.
+    Local deterministic video generator that creates vertical scene videos
+    using FFmpeg. Supports text-to-video and image-to-video with Ken Burns motion.
+    Integrated with asset caching for zero duplicate computation.
     """
     def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        # Check cache first
+        cached = asset_cache.get_cached_video(prompt, "cinematic", duration_seconds, aspect_ratio)
+        if cached:
+            return {
+                "job_id": f"cached_{cached.stem}",
+                "status": "completed",
+                "progress": 100,
+                "video_path": str(cached),
+                "is_demo_asset": True,
+                "provider": "mock",
+                "cached": True
+            }
+
         job_id = f"mock_vid_{uuid.uuid4().hex[:8]}"
         out_path = settings.TEMP_DIR / f"{job_id}.mp4"
         success = create_sample_scene_video(
@@ -25,13 +41,48 @@ class MockVideoProvider(BaseVideoProvider):
             width=1080 if aspect_ratio == "9:16" else 1920,
             height=1920 if aspect_ratio == "9:16" else 1080
         )
+
+        if success and out_path.exists():
+            asset_cache.store_cached_video(prompt, "cinematic", duration_seconds, aspect_ratio, out_path)
+
         return {
             "job_id": job_id,
             "status": "completed" if success else "failed",
             "progress": 100,
             "video_path": str(out_path),
             "is_demo_asset": True,
-            "provider": "mock"
+            "provider": "mock",
+            "cached": False
+        }
+
+    def generate_video_from_image(
+        self,
+        image_path: Path,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16"
+    ) -> Dict[str, Any]:
+        job_id = f"mock_i2v_{uuid.uuid4().hex[:8]}"
+        out_path = settings.TEMP_DIR / f"{job_id}.mp4"
+        tw = 1080 if aspect_ratio == "9:16" else 1920
+        th = 1920 if aspect_ratio == "9:16" else 1080
+
+        success = generate_image_to_video_motion(
+            image_path=image_path,
+            output_path=out_path,
+            duration=duration_seconds,
+            motion_type="slow_zoom_in",
+            target_width=tw,
+            target_height=th
+        )
+
+        return {
+            "job_id": job_id,
+            "status": "completed" if success else "failed",
+            "progress": 100,
+            "video_path": str(out_path),
+            "is_demo_asset": True,
+            "provider": "mock_i2v"
         }
 
     def get_generation_status(self, job_id: str) -> Dict[str, Any]:
@@ -80,6 +131,15 @@ class LumaVideoProvider(BaseVideoProvider):
                 "provider": "luma"
             }
 
+    def generate_video_from_image(
+        self,
+        image_path: Path,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16"
+    ) -> Dict[str, Any]:
+        return self.generate_video(prompt=f"{prompt} (from keyframe)", duration_seconds=duration_seconds, aspect_ratio=aspect_ratio)
+
     def get_generation_status(self, job_id: str) -> Dict[str, Any]:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         with httpx.Client(timeout=15.0) as client:
@@ -94,6 +154,182 @@ class LumaVideoProvider(BaseVideoProvider):
                 "status": "completed" if state == "completed" else "failed" if state == "failed" else "processing",
                 "progress": 100 if state == "completed" else 50,
                 "video_url": assets.get("video")
+            }
+
+    def download_generated_video(self, video_url: str, destination_path: Path) -> bool:
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.get(video_url)
+            if resp.status_code == 200:
+                destination_path.write_bytes(resp.content)
+                return True
+        return False
+
+    def cancel_generation(self, job_id: str) -> bool:
+        return True
+
+class RunwayVideoProvider(BaseVideoProvider):
+    """
+    Real Runway Gen-3 Alpha / Turbo video generation adapter.
+    API Docs: https://docs.runwayml.com/
+    """
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.dev.runwayml.com/v1"
+
+    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "X-Runway-Version": "2024-11-06",
+            "Content-Type": "application/json"
+        }
+        ratio = "9:16" if aspect_ratio == "9:16" else "16:9"
+        duration_int = 10 if duration_seconds > 7.5 else 5
+        payload = {
+            "promptText": prompt,
+            "model": "gen3a_turbo",
+            "duration": duration_int,
+            "ratio": ratio
+        }
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{self.base_url}/tasks", headers=headers, json=payload)
+            if resp.status_code not in (200, 201):
+                logger.error(f"Runway error: {resp.text}")
+                raise RuntimeError(f"Runway error: {resp.status_code} - {resp.text}")
+            data = resp.json()
+            return {
+                "job_id": data.get("id"),
+                "status": data.get("status", "PENDING").lower(),
+                "progress": 10,
+                "provider": "runway"
+            }
+
+    def generate_video_from_image(
+        self,
+        image_path: Path,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16"
+    ) -> Dict[str, Any]:
+        return self.generate_video(prompt=prompt, duration_seconds=duration_seconds, aspect_ratio=aspect_ratio)
+
+    def get_generation_status(self, job_id: str) -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "X-Runway-Version": "2024-11-06"
+        }
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"{self.base_url}/tasks/{job_id}", headers=headers)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Runway status error: {resp.status_code}")
+            data = resp.json()
+            status_raw = data.get("status", "").lower()
+            output = data.get("output", [])
+            video_url = output[0] if output else None
+            return {
+                "job_id": job_id,
+                "status": "completed" if status_raw in ("succeeded", "completed") else "failed" if status_raw in ("failed", "cancelled") else "processing",
+                "progress": 100 if status_raw in ("succeeded", "completed") else int(data.get("progressRatio", 0.5) * 100),
+                "video_url": video_url
+            }
+
+    def download_generated_video(self, video_url: str, destination_path: Path) -> bool:
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.get(video_url)
+            if resp.status_code == 200:
+                destination_path.write_bytes(resp.content)
+                return True
+        return False
+
+    def cancel_generation(self, job_id: str) -> bool:
+        return True
+
+class KlingVideoProvider(BaseVideoProvider):
+    """Real Kling AI video generation adapter."""
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.klingai.com/v1"
+
+    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model_name": "kling-v1",
+            "prompt": prompt,
+            "duration": "5" if duration_seconds <= 5.0 else "10",
+            "aspect_ratio": "9:16" if aspect_ratio == "9:16" else "16:9"
+        }
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{self.base_url}/videos/text2video", headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Kling API error: {resp.status_code} - {resp.text}")
+            data = resp.json().get("data", {})
+            return {"job_id": data.get("task_id"), "status": "processing", "progress": 10, "provider": "kling"}
+
+    def generate_video_from_image(self, image_path: Path, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        return self.generate_video(prompt=prompt, duration_seconds=duration_seconds, aspect_ratio=aspect_ratio)
+
+    def get_generation_status(self, job_id: str) -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"{self.base_url}/videos/text2video/{job_id}", headers=headers)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Kling status error: {resp.status_code}")
+            task = resp.json().get("data", {})
+            status_str = task.get("task_status", "").lower()
+            works = task.get("task_result", {}).get("videos", [])
+            video_url = works[0].get("url") if works else None
+            return {
+                "job_id": job_id,
+                "status": "completed" if status_str == "succeed" else "failed" if status_str == "failed" else "processing",
+                "progress": 100 if status_str == "succeed" else 50,
+                "video_url": video_url
+            }
+
+    def download_generated_video(self, video_url: str, destination_path: Path) -> bool:
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.get(video_url)
+            if resp.status_code == 200:
+                destination_path.write_bytes(resp.content)
+                return True
+        return False
+
+    def cancel_generation(self, job_id: str) -> bool:
+        return True
+
+class PikaVideoProvider(BaseVideoProvider):
+    """Real Pika video generation adapter."""
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.pika.art/v1"
+
+    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {
+            "promptText": prompt,
+            "options": {"aspectRatio": "9:16" if aspect_ratio == "9:16" else "16:9"}
+        }
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{self.base_url}/generate", headers=headers, json=payload)
+            if resp.status_code not in (200, 201):
+                raise RuntimeError(f"Pika API error: {resp.status_code} - {resp.text}")
+            data = resp.json()
+            return {"job_id": data.get("id"), "status": "processing", "progress": 10, "provider": "pika"}
+
+    def generate_video_from_image(self, image_path: Path, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+        return self.generate_video(prompt=prompt, duration_seconds=duration_seconds, aspect_ratio=aspect_ratio)
+
+    def get_generation_status(self, job_id: str) -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"{self.base_url}/generate/{job_id}", headers=headers)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Pika status error: {resp.status_code}")
+            data = resp.json()
+            status_str = data.get("status", "").lower()
+            return {
+                "job_id": job_id,
+                "status": "completed" if status_str == "finished" else "failed" if status_str == "error" else "processing",
+                "progress": 100 if status_str == "finished" else 50,
+                "video_url": data.get("videoUri")
             }
 
     def download_generated_video(self, video_url: str, destination_path: Path) -> bool:
