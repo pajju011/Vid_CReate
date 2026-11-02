@@ -185,7 +185,7 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
                 max_duration=(end_time - start_time)
             )
 
-        # 4. Render vertical video
+        # 4. Render vertical video with subtitle burning
         update_job_sync(job_id, "running", 80, "Rendering final vertical 1080x1920 MP4...")
         rendered_filename = f"short_{clip_id}.mp4"
         rendered_path = settings.RENDERS_DIR / rendered_filename
@@ -251,7 +251,7 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         )
         storyboard = llm.generate_storyboard(
             script_data=script,
-            num_scenes=prompt_data.get("num_scenes", 5),
+            num_scenes=prompt_data.get("num_scenes", 4),
             style=prompt_data.get("visual_style", "cinematic")
         )
 
@@ -279,6 +279,9 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         video_provider = providers.get_video_provider()
         scene_video_paths = []
 
+        target_w = 1080 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1920
+        target_h = 1920 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1080
+
         for idx, sid in enumerate(scene_ids, 1):
             update_job_sync(job_id, "running", 40 + int(idx * 25 / len(scene_ids)), f"Generating scene {idx} of {len(scene_ids)}...")
             with SessionLocal() as session:
@@ -299,19 +302,33 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 sc.status = "completed"
                 session.commit()
 
-        # 3. Audio / Background Music
-        update_job_sync(job_id, "running", 75, "Composing background music and audio tracks...")
+        # 3. Voiceover narration synthesis
+        voiceover_path = None
+        if prompt_data.get("voiceover_enabled", True):
+            update_job_sync(job_id, "running", 70, "Synthesizing voiceover narration...")
+            full_narration = " ".join(s.get("narration", "") for s in storyboard if s.get("narration"))
+            if full_narration.strip():
+                audio_provider = providers.get_audio_provider()
+                voiceover_path = settings.TEMP_DIR / f"voice_{project_id}.wav"
+                audio_provider.generate_voiceover(
+                    text=full_narration,
+                    voice=prompt_data.get("voice_selection", "energetic_male"),
+                    output_path=voiceover_path
+                )
+
+        # 4. Background Music synthesis
         bg_music_path = None
-        if prompt_data.get("background_music") != "none":
+        if prompt_data.get("background_music") not in ("none", None):
+            update_job_sync(job_id, "running", 78, "Composing background music soundtrack...")
             audio_provider = providers.get_audio_provider()
-            bg_music_path = settings.TEMP_DIR / f"bgm_{project_id}.mp4"
+            bg_music_path = settings.TEMP_DIR / f"bgm_{project_id}.wav"
             audio_provider.generate_music(
                 mood=prompt_data.get("background_music", "upbeat"),
                 duration_seconds=prompt_data.get("duration_seconds", 30.0),
                 output_path=bg_music_path
             )
 
-        # 4. Generate Subtitles from scene captions
+        # 5. Generate Subtitles from scene captions
         update_job_sync(job_id, "running", 82, "Compiling timed subtitle track...")
         sub_segments = []
         cur_t = 0.0
@@ -331,10 +348,12 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             segments=sub_segments,
             output_path=sub_ass_path,
             style_preset=prompt_data.get("caption_style", "bold_yellow"),
-            max_duration=cur_t
+            max_duration=cur_t,
+            video_width=target_w,
+            video_height=target_h
         )
 
-        # 5. Assembly
+        # 6. Assembly & Audio Ducking
         update_job_sync(job_id, "running", 88, "Assembling scenes into final master video...")
         output_filename = f"final_{project_id}.mp4"
         output_path = settings.RENDERS_DIR / output_filename
@@ -342,17 +361,22 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         ok = assemble_scenes(
             scene_video_paths=scene_video_paths,
             output_path=output_path,
+            voiceover_path=voiceover_path,
             bg_music_path=bg_music_path,
             subtitle_ass_path=sub_ass_path,
-            target_width=1080 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1920,
-            target_height=1920 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1080
+            target_width=target_w,
+            target_height=target_h
         )
         if not ok:
             raise RuntimeError("FFmpeg assembly failed for final project.")
 
-        # 6. Quality Control Check
+        # 7. Quality Control Check
         update_job_sync(job_id, "running", 95, "Running automated technical QC checks...")
-        qc_result = qc_service.evaluate_video(output_path, expected_aspect_ratio=prompt_data.get("aspect_ratio", "9:16"))
+        qc_result = qc_service.evaluate_video(
+            output_path,
+            expected_aspect_ratio=prompt_data.get("aspect_ratio", "9:16"),
+            require_audio=True
+        )
 
         with SessionLocal() as session:
             final_asset = VideoAsset(
@@ -361,8 +385,8 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 storage_path=str(output_path),
                 original_filename=output_filename,
                 duration=qc_result.get("metrics", {}).get("duration"),
-                width=1080,
-                height=1920,
+                width=target_w,
+                height=target_h,
                 file_size_bytes=output_path.stat().st_size,
                 metadata_json={"qc_report": qc_result}
             )
@@ -378,7 +402,12 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             "completed",
             100,
             "Video generation completed successfully!",
-            result_data={"asset_id": final_asset.id, "qc_status": qc_result["status"]}
+            result_data={
+                "asset_id": final_asset.id,
+                "qc_status": qc_result["status"],
+                "duration": qc_result.get("metrics", {}).get("duration"),
+                "has_audio": qc_result.get("metrics", {}).get("has_audio")
+            }
         )
 
     except Exception as e:

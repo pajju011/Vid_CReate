@@ -9,16 +9,16 @@ from app.workers.local_queue import local_queue
 router = APIRouter(prefix="/generation", tags=["generation"])
 
 @router.post("/storyboard", response_model=ProductionPlan)
-async def generate_storyboard(payload: PromptPlanningRequest):
+def generate_storyboard(payload: PromptPlanningRequest):
     """Generate structured script and storyboard without rendering."""
     llm = providers.get_llm_provider()
     try:
-        script = await llm.generate_script(
+        script = llm.generate_script(
             prompt=payload.prompt,
             duration_seconds=payload.duration_seconds,
             platform=payload.target_platform
         )
-        scenes = await llm.generate_storyboard(
+        scenes = llm.generate_storyboard(
             script_data=script,
             num_scenes=payload.num_scenes,
             style=payload.visual_style

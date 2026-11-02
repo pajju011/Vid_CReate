@@ -62,15 +62,24 @@ def create_sample_audio_track(
     duration: float = 30.0,
     track_type: str = "music"
 ) -> bool:
-    """Generate ambient synthetic audio track."""
+    """
+    Generate ambient synthetic audio track.
+    Saves clean uncompressed PCM WAV or AAC depending on extension.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     freq = "220" if track_type == "music" else "330"
+    
+    # If .wav, use standard pcm_s16le to ensure 100% valid WAV RIFF container
+    if output_path.suffix.lower() == ".wav":
+        codec_args = ["-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2"]
+    else:
+        codec_args = ["-c:a", "aac", "-b:a", "128k"]
+
     args = [
         "-f", "lavfi",
         "-i", f"sine=frequency={freq}:duration={duration}",
-        "-af", "volume=0.3,afade=t=in:ss=0:d=1,afade=t=out:st=28:d=2",
-        "-c:a", "aac",
-        "-b:a", "128k",
+        "-af", f"volume=0.3,afade=t=in:ss=0:d=1,afade=t=out:st={max(0.1, duration - 1.5)}:d=1.5",
+        *codec_args,
         str(output_path)
     ]
     success, _ = run_ffmpeg(args)

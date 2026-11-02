@@ -10,7 +10,7 @@ from app.api.router import api_router
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Initializing ClipForge AI backend...")
-    await init_db()
+    init_db()
     logger.info("Database initialized successfully.")
     yield
     logger.info("Shutting down ClipForge AI backend...")
