@@ -18,7 +18,14 @@ class PollinationsVideoProvider(BaseVideoProvider):
     Real AI Video Generator powered by Pollinations.ai (Flux.1 / SDXL) and FFmpeg Ken Burns Camera Motion.
     100% Free, Zero API Key required, produces true high-definition vertical AI visuals and motion clips.
     """
-    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+    def generate_video(
+        self,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16",
+        width: Optional[int] = None,
+        height: Optional[int] = None
+    ) -> Dict[str, Any]:
         # Check cache first
         cached = asset_cache.get_cached_video(prompt, "cinematic", duration_seconds, aspect_ratio)
         if cached:
@@ -33,8 +40,8 @@ class PollinationsVideoProvider(BaseVideoProvider):
             }
 
         job_id = f"pol_vid_{uuid.uuid4().hex[:8]}"
-        tw = 1080 if aspect_ratio == "9:16" else 1920
-        th = 1920 if aspect_ratio == "9:16" else 1080
+        tw = width if width else (1080 if aspect_ratio == "9:16" else 1920)
+        th = height if height else (1920 if aspect_ratio == "9:16" else 1080)
 
         # 1. Generate real AI image from Pollinations Flux API
         temp_img_path = storage_service.create_temp_path(prefix=f"img_{job_id}", suffix=".jpg")
@@ -144,8 +151,15 @@ class MockVideoProvider(BaseVideoProvider):
     def __init__(self):
         self._pol = PollinationsVideoProvider()
 
-    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
-        return self._pol.generate_video(prompt, duration_seconds, aspect_ratio)
+    def generate_video(
+        self,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16",
+        width: Optional[int] = None,
+        height: Optional[int] = None
+    ) -> Dict[str, Any]:
+        return self._pol.generate_video(prompt, duration_seconds, aspect_ratio, width=width, height=height)
 
     def generate_video_from_image(
         self,

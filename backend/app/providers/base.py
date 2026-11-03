@@ -25,7 +25,14 @@ class BaseLLMProvider(ABC):
 
 class BaseVideoProvider(ABC):
     @abstractmethod
-    def generate_video(self, prompt: str, duration_seconds: float, aspect_ratio: str = "9:16") -> Dict[str, Any]:
+    def generate_video(
+        self,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str = "9:16",
+        width: Optional[int] = None,
+        height: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Submit or synthesize a video generation."""
         pass
 
