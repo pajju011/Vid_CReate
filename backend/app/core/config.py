@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     
-    # Base directories
-    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
+    # Base directories (Project root)
+    BASE_DIR: Path = Path(__file__).resolve().parents[3]
+    BACKEND_DIR: Path = Path(__file__).resolve().parents[2]
     
     # External Local Media Storage Configuration
     MEDIA_STORAGE_PATH: Path = Path(os.getenv("MEDIA_STORAGE_PATH", "D:/AI_Video_Storage"))
@@ -138,7 +139,10 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent.parent.parent / ".env"),
+        env_file=(
+            str(Path(__file__).resolve().parents[3] / ".env"),
+            str(Path(__file__).resolve().parents[2] / ".env")
+        ),
         env_file_encoding="utf-8",
         extra="ignore"
     )

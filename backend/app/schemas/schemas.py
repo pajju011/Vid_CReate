@@ -30,6 +30,7 @@ class VideoAssetResponse(BaseModel):
     file_size_bytes: Optional[int] = None
     metadata_json: Dict[str, Any] = Field(default_factory=dict)
     download_url: Optional[str] = None
+    stream_url: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -70,6 +71,7 @@ class ClipResponse(BaseModel):
     caption_style: str
     rendered_asset_id: Optional[str] = None
     download_url: Optional[str] = None
+    stream_url: Optional[str] = None
     created_at: datetime
 
     class Config:

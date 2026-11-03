@@ -120,7 +120,7 @@ export const ProjectDetailPage: React.FC = () => {
 
             {finalAsset ? (
               <VideoPlayer
-                src={finalAsset.download_url || ''}
+                src={finalAsset.stream_url || finalAsset.download_url || ''}
                 aspectRatio="9:16"
                 title={project.name}
                 downloadUrl={finalAsset.download_url}

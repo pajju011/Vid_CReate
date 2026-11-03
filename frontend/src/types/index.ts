@@ -21,6 +21,7 @@ export interface VideoAsset {
   file_size_bytes?: number;
   metadata_json: Record<string, any>;
   download_url?: string;
+  stream_url?: string;
   created_at: string;
 }
 
@@ -57,6 +58,7 @@ export interface Clip {
   caption_style: 'bold_yellow' | 'clean_minimal' | 'creator_box' | 'cinematic';
   rendered_asset_id?: string;
   download_url?: string;
+  stream_url?: string;
   created_at: string;
 }
 

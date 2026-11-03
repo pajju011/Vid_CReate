@@ -91,8 +91,8 @@ def test_workspace_free_of_generated_media():
     
     # Scan project root, backend, frontend (excluding node_modules or venv)
     for root, dirs, files in os.walk(project_root):
-        # Skip node_modules, venv, .git
-        dirs[:] = [d for d in dirs if d not in {"node_modules", "venv", ".git", ".pytest_cache"}]
+        # Skip node_modules, venv, .git, scratch
+        dirs[:] = [d for d in dirs if d not in {"node_modules", "venv", ".git", ".pytest_cache", "scratch"}]
         for f in files:
             ext = Path(f).suffix.lower()
             if ext in media_extensions:

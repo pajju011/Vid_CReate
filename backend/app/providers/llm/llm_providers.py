@@ -66,10 +66,22 @@ class MockLLMProvider(BaseLLMProvider):
         return sorted(candidate_clips, key=lambda c: c.get("score", 0.0), reverse=True)
 
 class GeminiLLMProvider(BaseLLMProvider):
-    """Real Google Gemini API provider adapter."""
+    """Real Google Gemini API provider adapter (Free Tier on Google AI Studio)."""
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
+        self._mock = MockLLMProvider()
+
+    def _clean_json_response(self, text: str) -> Any:
+        clean = text.strip()
+        if clean.startswith("```"):
+            lines = clean.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean = "\n".join(lines).strip()
+        return json.loads(clean)
 
     def generate_script(self, prompt: str, duration_seconds: float, platform: str) -> Dict[str, Any]:
         url = f"{self.base_url}/models/gemini-1.5-flash:generateContent?key={self.api_key}"
@@ -85,14 +97,18 @@ class GeminiLLMProvider(BaseLLMProvider):
             }],
             "generationConfig": {"response_mime_type": "application/json"}
         }
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(url, json=payload)
-            if resp.status_code != 200:
-                logger.error(f"Gemini API error ({resp.status_code}): {resp.text}")
-                raise RuntimeError(f"Gemini API returned error: {resp.status_code} - {resp.text}")
-            data = resp.json()
-            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(raw_text)
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(url, json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return self._clean_json_response(raw_text)
+                else:
+                    logger.warning(f"Gemini API returned status {resp.status_code}, falling back to deterministic director")
+        except Exception as e:
+            logger.warning(f"Gemini API error ({e}), falling back to deterministic director")
+        return self._mock.generate_script(prompt, duration_seconds, platform)
 
     def generate_storyboard(self, script_data: Dict[str, Any], num_scenes: int, style: str) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/models/gemini-1.5-flash:generateContent?key={self.api_key}"
@@ -108,16 +124,21 @@ class GeminiLLMProvider(BaseLLMProvider):
             }],
             "generationConfig": {"response_mime_type": "application/json"}
         }
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(url, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Gemini API returned error: {resp.status_code} - {resp.text}")
-            data = resp.json()
-            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(raw_text)
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(url, json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return self._clean_json_response(raw_text)
+                else:
+                    logger.warning(f"Gemini API status {resp.status_code}, falling back to storyboard planner")
+        except Exception as e:
+            logger.warning(f"Gemini API error ({e}), falling back to storyboard planner")
+        return self._mock.generate_storyboard(script_data, num_scenes, style)
 
     def analyze_transcript(self, transcript_text: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return MockLLMProvider().analyze_transcript(transcript_text, segments)
+        return self._mock.analyze_transcript(transcript_text, segments)
 
     def rank_clips(self, candidate_clips: List[Dict[str, Any]], target_platform: str) -> List[Dict[str, Any]]:
-        return MockLLMProvider().rank_clips(candidate_clips, target_platform)
+        return self._mock.rank_clips(candidate_clips, target_platform)

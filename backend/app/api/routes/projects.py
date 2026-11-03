@@ -35,9 +35,11 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 
     for a in proj.assets:
         a.download_url = f"/api/assets/{a.id}/download"
+        a.stream_url = f"/api/assets/{a.id}/stream"
     for c in proj.clips:
         if c.rendered_asset_id:
             c.download_url = f"/api/assets/{c.rendered_asset_id}/download"
+            c.stream_url = f"/api/assets/{c.rendered_asset_id}/stream"
         c.duration = round(c.end_time - c.start_time, 2)
 
     return proj

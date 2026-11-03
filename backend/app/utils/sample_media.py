@@ -64,23 +64,33 @@ def create_sample_audio_track(
 ) -> bool:
     """
     Generate ambient synthetic audio track.
+    For music: mixes a harmonic ambient chord pad with lowpass smoothing.
     Saves clean uncompressed PCM WAV or AAC depending on extension.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    freq = "220" if track_type == "music" else "330"
     
-    # If .wav, use standard pcm_s16le to ensure 100% valid WAV RIFF container
     if output_path.suffix.lower() == ".wav":
         codec_args = ["-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2"]
     else:
         codec_args = ["-c:a", "aac", "-b:a", "128k"]
 
-    args = [
-        "-f", "lavfi",
-        "-i", f"sine=frequency={freq}:duration={duration}",
-        "-af", f"volume=0.3,afade=t=in:ss=0:d=1,afade=t=out:st={max(0.1, duration - 1.5)}:d=1.5",
-        *codec_args,
-        str(output_path)
-    ]
+    if track_type == "music":
+        args = [
+            "-f", "lavfi", "-i", f"sine=f=131:d={duration}",
+            "-f", "lavfi", "-i", f"sine=f=196:d={duration}",
+            "-f", "lavfi", "-i", f"sine=f=262:d={duration}",
+            "-filter_complex",
+            f"[0:a][1:a][2:a]amix=inputs=3,lowpass=f=650,volume=0.22,afade=t=in:ss=0:d=1,afade=t=out:st={max(0.1, duration - 1.5)}:d=1.5",
+            *codec_args,
+            str(output_path)
+        ]
+    else:
+        args = [
+            "-f", "lavfi",
+            "-i", f"sine=frequency=330:duration={duration}",
+            "-af", f"volume=0.25,lowpass=f=1200,afade=t=in:ss=0:d=0.2,afade=t=out:st={max(0.1, duration - 0.5)}:d=0.5",
+            *codec_args,
+            str(output_path)
+        ]
     success, _ = run_ffmpeg(args)
     return success
