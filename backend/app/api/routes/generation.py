@@ -69,6 +69,42 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found.")
     return job
 
+@router.post("/{job_id}/pause", response_model=JobResponse)
+def pause_job(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status in ("completed", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Cannot pause job with status {job.status}")
+    job.status = "paused"
+    job.current_step = "Execution paused by user"
+    db.commit()
+    db.refresh(job)
+    return job
+
+@router.post("/{job_id}/resume", response_model=JobResponse)
+def resume_job(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status != "paused":
+        raise HTTPException(status_code=400, detail="Only paused jobs can be resumed.")
+    job.status = "running"
+    job.current_step = "Resuming from last checkpoint..."
+    db.commit()
+    db.refresh(job)
+
+    if job.job_type == "prompt_to_video":
+        proj = db.query(Project).filter(Project.id == job.project_id).first()
+        prompt_data = proj.settings if proj else {}
+        local_queue.enqueue_prompt_video(job.id, job.project_id, prompt_data)
+    elif job.job_type == "clip_rendering":
+        clip_id = job.result_data.get("clip_id")
+        if clip_id:
+            local_queue.enqueue_clip_render(job.id, clip_id)
+
+    return job
+
 @router.post("/{job_id}/cancel")
 def cancel_job(job_id: str, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()

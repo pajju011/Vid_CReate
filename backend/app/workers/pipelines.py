@@ -16,6 +16,7 @@ from app.services.consistency.consistency_engine import consistency_engine
 from app.core.cache import asset_cache
 from app.services.storage.storage_service import storage_service
 from app.providers.registry import providers
+from app.api.websocket_manager import ws_manager
 
 def update_job_sync(
     job_id: str,
@@ -23,7 +24,8 @@ def update_job_sync(
     progress: int,
     current_step: str,
     result_data: dict = None,
-    error_message: str = None
+    error_message: str = None,
+    checkpoint_data: dict = None
 ):
     with SessionLocal() as session:
         job = session.query(Job).filter(Job.id == job_id).first()
@@ -34,9 +36,30 @@ def update_job_sync(
             job.updated_at = datetime.now(timezone.utc)
             if result_data is not None:
                 job.result_data = {**(job.result_data or {}), **result_data}
+            if checkpoint_data is not None:
+                job.checkpoint_data = {**(job.checkpoint_data or {}), **checkpoint_data}
             if error_message:
                 job.error_message = error_message
             session.commit()
+
+            # Broadcast real-time update to WebSocket clients
+            ws_manager.broadcast_sync(job_id, {
+                "type": "job_progress",
+                "job_id": job.id,
+                "status": job.status,
+                "progress": job.progress,
+                "current_step": job.current_step,
+                "result_data": job.result_data,
+                "checkpoint_data": job.checkpoint_data,
+                "error_message": job.error_message,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None
+            })
+
+def is_job_halted(job_id: str) -> bool:
+    with SessionLocal() as session:
+        job = session.query(Job).filter(Job.id == job_id).first()
+        return bool(job and job.status in ("paused", "cancelled"))
+
 
 def run_analyze_video_pipeline(job_id: str, asset_id: str, target_clip_duration: float = 30.0):
     """Full Video-to-Shorts analysis pipeline."""
@@ -162,6 +185,9 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
             clip.status = "rendering"
             session.commit()
 
+        if is_job_halted(job_id):
+            return
+
         # 1. Trim source segment in external temporary directory
         update_job_sync(job_id, "running", 25, "Trimming high-engagement segment in temp storage...")
         trimmed_segment = storage_service.create_temp_path(prefix=f"trim_{clip_id}", suffix=".mp4", job_id=job_id)
@@ -191,6 +217,9 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
                 time_offset=start_time,
                 max_duration=(end_time - start_time)
             )
+
+        if is_job_halted(job_id):
+            return
 
         # 4. Render vertical video in external temporary directory
         update_job_sync(job_id, "running", 80, "Rendering vertical 1080x1920 MP4 in temp workspace...")
@@ -257,54 +286,78 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
         update_job_sync(job_id, "failed", 0, "Clip rendering failed", error_message=str(e))
 
 def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict):
-    """Full Prompt-to-Video pipeline."""
+    """Full Prompt-to-Video pipeline with checkpoint recovery and pause/resume support."""
     try:
-        # 1. AI Planning
-        update_job_sync(job_id, "running", 15, "AI Creative Director planning script and storyboard...")
-        llm = providers.get_llm_provider()
-        script = llm.generate_script(
-            prompt=prompt_data["prompt"],
-            duration_seconds=prompt_data.get("duration_seconds", 30.0),
-            platform=prompt_data.get("target_platform", "instagram_reels")
-        )
-        storyboard = llm.generate_storyboard(
-            script_data=script,
-            num_scenes=prompt_data.get("num_scenes", 4),
-            style=prompt_data.get("visual_style", "cinematic")
-        )
+        # Check initial state and checkpoint
+        with SessionLocal() as session:
+            job = session.query(Job).filter(Job.id == job_id).first()
+            if not job:
+                raise ValueError(f"Job {job_id} not found.")
+            if job.status in ("paused", "cancelled"):
+                logger.info(f"Job {job_id} is already {job.status}. Exiting.")
+                return
+            checkpoint = (job.checkpoint_data or {})
 
-        # Enforce Character Consistency, Camera Movement Continuity & Lighting
-        storyboard = consistency_engine.enrich_storyboard_for_consistency(
-            storyboard=storyboard,
-            visual_style=prompt_data.get("visual_style", "cinematic"),
-            user_prompt=prompt_data.get("prompt", "")
-        )
+        completed_scenes = dict(checkpoint.get("completed_scenes", {}))
+
+        # 1. AI Planning (or restore from checkpoint)
+        if checkpoint.get("storyboard"):
+            storyboard = checkpoint["storyboard"]
+            logger.info(f"Restored storyboard from checkpoint for job {job_id}")
+        else:
+            update_job_sync(job_id, "running", 15, "AI Creative Director planning script and storyboard...")
+            llm = providers.get_llm_provider()
+            script = llm.generate_script(
+                prompt=prompt_data["prompt"],
+                duration_seconds=prompt_data.get("duration_seconds", 30.0),
+                platform=prompt_data.get("target_platform", "instagram_reels")
+            )
+            storyboard = llm.generate_storyboard(
+                script_data=script,
+                num_scenes=prompt_data.get("num_scenes", 4),
+                style=prompt_data.get("visual_style", "cinematic")
+            )
+
+            # Enforce Character Consistency, Camera Movement Continuity & Lighting
+            storyboard = consistency_engine.enrich_storyboard_for_consistency(
+                storyboard=storyboard,
+                visual_style=prompt_data.get("visual_style", "cinematic"),
+                user_prompt=prompt_data.get("prompt", "")
+            )
+            update_job_sync(job_id, "running", 25, "Storyboard created and consistency anchors configured", checkpoint_data={"storyboard": storyboard})
+
+        if is_job_halted(job_id):
+            return
 
         scene_ids = []
         with SessionLocal() as session:
-            for s in storyboard:
-                sc = Scene(
-                    project_id=project_id,
-                    scene_number=s["scene_number"],
-                    duration=s.get("duration_seconds", 5.0),
-                    prompt=s["visual_prompt"],
-                    visual_description=s.get("visual_prompt"),
-                    camera_movement=s.get("camera_movement", "slow_push_in"),
-                    narration=s.get("narration"),
-                    caption=s.get("caption"),
-                    consistency_anchor=s.get("consistency_anchor"),
-                    status="pending"
-                )
-                session.add(sc)
-                session.flush()
-                scene_ids.append(sc.id)
-            session.commit()
+            existing_scenes = session.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number).all()
+            if existing_scenes and len(existing_scenes) == len(storyboard):
+                scene_ids = [sc.id for sc in existing_scenes]
+            else:
+                for s in storyboard:
+                    sc = Scene(
+                        project_id=project_id,
+                        scene_number=s["scene_number"],
+                        duration=s.get("duration_seconds", 5.0),
+                        prompt=s["visual_prompt"],
+                        visual_description=s.get("visual_prompt"),
+                        camera_movement=s.get("camera_movement", "slow_push_in"),
+                        narration=s.get("narration"),
+                        caption=s.get("caption"),
+                        consistency_anchor=s.get("consistency_anchor"),
+                        status="pending"
+                    )
+                    session.add(sc)
+                    session.flush()
+                    scene_ids.append(sc.id)
+                session.commit()
 
         # 2. Asset Generation for Scenes with Automatic Quality Control & Retry
         update_job_sync(
             job_id, "running", 40,
             f"Generating visual assets for {len(scene_ids)} scenes...",
-            result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": 0}
+            result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": len(completed_scenes)}
         )
         video_provider = providers.get_video_provider()
         scene_video_paths = []
@@ -313,16 +366,26 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
         target_h = 1920 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1080
 
         for idx, sid in enumerate(scene_ids, 1):
+            if is_job_halted(job_id):
+                logger.info(f"Job {job_id} paused/cancelled before scene {idx}. Halting pipeline.")
+                return
+
+            # Check if this scene was completed in a previous run and file is valid
+            if str(sid) in completed_scenes and Path(completed_scenes[str(sid)]).exists():
+                logger.info(f"Reusing scene {idx} from checkpoint: {completed_scenes[str(sid)]}")
+                scene_video_paths.append(Path(completed_scenes[str(sid)]))
+                continue
+
             update_job_sync(
                 job_id, "running",
                 40 + int(idx * 25 / len(scene_ids)),
                 f"Generating scene {idx} of {len(scene_ids)}...",
-                result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": idx - 1, "current_scene": idx}
+                result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": len(scene_video_paths), "current_scene": idx}
             )
             with SessionLocal() as session:
                 sc = session.query(Scene).filter(Scene.id == sid).first()
-                duration = sc.duration
-                prompt_text = sc.prompt
+                duration = sc.duration if sc else 5.0
+                prompt_text = sc.prompt if sc else "Cinematic dynamic shot"
 
             # Scene generation with automatic QC verification and retry
             v_path = None
@@ -362,11 +425,26 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                 raise RuntimeError(f"Scene {idx} failed to generate and pass quality control after retries.")
 
             scene_video_paths.append(v_path)
+            completed_scenes[str(sid)] = str(v_path)
 
             with SessionLocal() as session:
                 sc = session.query(Scene).filter(Scene.id == sid).first()
-                sc.status = "completed"
+                if sc:
+                    sc.status = "completed"
                 session.commit()
+
+            # Commit scene checkpoint
+            update_job_sync(
+                job_id, "running",
+                40 + int(idx * 25 / len(scene_ids)),
+                f"Scene {idx} ready",
+                checkpoint_data={"completed_scenes": completed_scenes}
+            )
+
+        if is_job_halted(job_id):
+            logger.info(f"Job {job_id} paused/cancelled before audio/assembly. Halting pipeline.")
+            return
+
 
         # 3. Voiceover narration synthesis in temp directory
         voiceover_path = None

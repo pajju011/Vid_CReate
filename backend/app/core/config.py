@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     
     # AI Providers Configuration
     DEMO_MODE: bool = True
+
+    # Privacy Tiers: "strict_local", "private_hybrid", "cloud_assisted"
+    PRIVACY_MODE: str = "strict_local"
+    ALLOW_CLOUD_TRANSFERS: bool = False
+    CLOUD_PROVIDER_ALLOWLIST: List[str] = [
+        "gemini", "veo", "runway", "luma", "kling", "seedance", "firefly", "elevenlabs", "whisper", "pollinations"
+    ]
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3"
     
     LLM_PROVIDER: str = "mock"
     LLM_API_KEY: Optional[str] = None

@@ -99,17 +99,32 @@ class Job(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), index=True)
     job_type: Mapped[str] = mapped_column(String(50), nullable=False) # upload_processing | transcription | scene_detection | clip_generation | prompt_planning | scene_generation | video_render
-    status: Mapped[str] = mapped_column(String(50), default="pending") # pending | running | completed | failed | cancelled
+    status: Mapped[str] = mapped_column(String(50), default="pending") # pending | running | paused | completed | failed | cancelled | retrying
     progress: Mapped[int] = mapped_column(Integer, default=0) # 0 to 100
     current_step: Mapped[Optional[str]] = mapped_column(String(255), default="Initialized")
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     result_data: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    checkpoint_data: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    privacy_mode: Mapped[str] = mapped_column(String(50), default="private_hybrid") # strict_local | private_hybrid | cloud_assisted
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="jobs")
+
+class TransferAuditLog(Base):
+    __tablename__ = "transfer_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    job_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_type: Mapped[str] = mapped_column(String(100), nullable=False) # script_planning | video_generation | audio_tts | transcription
+    privacy_mode: Mapped[str] = mapped_column(String(50), default="private_hybrid")
+    is_cloud: Mapped[bool] = mapped_column(Boolean, default=False)
+    allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 class Transcript(Base):
     __tablename__ = "transcripts"

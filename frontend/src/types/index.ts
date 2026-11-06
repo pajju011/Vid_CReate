@@ -66,12 +66,14 @@ export interface Job {
   id: string;
   project_id: string;
   job_type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   current_step?: string;
   error_message?: string;
   retry_count: number;
   result_data: Record<string, any>;
+  checkpoint_data?: Record<string, any>;
+  privacy_mode?: string;
   created_at: string;
   updated_at: string;
 }
@@ -133,4 +135,25 @@ export interface ProvidersStatusResponse {
   audio: ProviderItemStatus;
   transcription: ProviderItemStatus;
 }
+
+export interface PrivacyStatus {
+  privacy_mode: 'strict_local' | 'private_hybrid' | 'cloud_assisted';
+  allow_cloud_transfers: boolean;
+  allowlist: string[];
+  is_strict_local: boolean;
+  offline_mode: boolean;
+}
+
+export interface TransferAuditLog {
+  id: string;
+  job_id?: string;
+  provider: string;
+  request_type: string;
+  privacy_mode: string;
+  is_cloud: boolean;
+  allowed: boolean;
+  payload_preview?: string;
+  created_at?: string;
+}
+
 

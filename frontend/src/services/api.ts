@@ -1,6 +1,7 @@
 import {
   Project, ProjectDetail, VideoAsset, Clip, Job,
-  ProductionPlan, PromptPlanningRequest, ProvidersStatusResponse
+  ProductionPlan, PromptPlanningRequest, ProvidersStatusResponse,
+  PrivacyStatus, TransferAuditLog
 } from '../types';
 
 const API_BASE = '/api';
@@ -89,6 +90,18 @@ export const api = {
     await fetch(`${API_BASE}/generation/${jobId}/cancel`, { method: 'POST' });
   },
 
+  async pauseJob(jobId: string): Promise<Job> {
+    const res = await fetch(`${API_BASE}/generation/${jobId}/pause`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to pause job');
+    return res.json();
+  },
+
+  async resumeJob(jobId: string): Promise<Job> {
+    const res = await fetch(`${API_BASE}/generation/${jobId}/resume`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to resume job');
+    return res.json();
+  },
+
   // Video-to-Shorts
   async analyzeVideo(assetId: string, targetDuration: number = 30): Promise<Job> {
     const res = await fetch(`${API_BASE}/videos/${assetId}/analyze?target_clip_duration=${targetDuration}`, {
@@ -169,6 +182,38 @@ export const api = {
     const res = await fetch(`${API_BASE}/storage/cleanup`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to clean up temp storage');
     return res.json();
+  },
+
+  // Privacy Gateway & Model Routing
+  async getPrivacyStatus(): Promise<PrivacyStatus> {
+    const res = await fetch(`${API_BASE}/privacy/status`);
+    if (!res.ok) throw new Error('Failed to fetch privacy status');
+    return res.json();
+  },
+
+  async updatePrivacySettings(data: {
+    privacy_mode?: string;
+    allow_cloud_transfers?: boolean;
+    allowlist?: string[];
+  }): Promise<PrivacyStatus> {
+    const res = await fetch(`${API_BASE}/privacy/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to update privacy settings');
+    return res.json();
+  },
+
+  async getTransferAuditLogs(limit: number = 50): Promise<TransferAuditLog[]> {
+    const res = await fetch(`${API_BASE}/privacy/audit-logs?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch audit logs');
+    return res.json();
+  },
+
+  async clearTransferAuditLogs(): Promise<void> {
+    const res = await fetch(`${API_BASE}/privacy/audit-logs/clear`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to clear audit logs');
   }
 };
 

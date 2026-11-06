@@ -87,8 +87,24 @@ class JobResponse(BaseModel):
     error_message: Optional[str] = None
     retry_count: int
     result_data: Dict[str, Any] = Field(default_factory=dict)
+    checkpoint_data: Dict[str, Any] = Field(default_factory=dict)
+    privacy_mode: str = "private_hybrid"
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class TransferAuditLogResponse(BaseModel):
+    id: str
+    job_id: Optional[str] = None
+    provider: str
+    request_type: str
+    privacy_mode: str
+    is_cloud: bool
+    allowed: bool
+    payload_preview: Optional[str] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -169,4 +185,30 @@ class RenderProjectRequest(BaseModel):
     resolution: str = "1080x1920"
     caption_style: str = "bold_yellow"
     background_music: Optional[str] = None
+
+class PrivacySettingsRequest(BaseModel):
+    privacy_mode: Optional[str] = None  # strict_local | private_hybrid | cloud_assisted
+    allow_cloud_transfers: Optional[bool] = None
+    allowlist: Optional[List[str]] = None
+
+class PrivacySettingsResponse(BaseModel):
+    privacy_mode: str
+    allow_cloud_transfers: bool
+    allowlist: List[str]
+    is_strict_local: bool
+    offline_mode: bool
+
+class TransferAuditLogResponse(BaseModel):
+    id: str
+    job_id: Optional[str] = None
+    provider: str
+    request_type: str
+    privacy_mode: str
+    is_cloud: bool
+    allowed: bool
+    payload_preview: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 

@@ -15,16 +15,17 @@ ClipForge AI Architecture
 ├── Frontend (React + Vite + TypeScript + Tailwind CSS)
 │   ├── Create Studio (Segmented Prompt-to-Video and Video-to-Shorts modes)
 │   ├── Interactive Storyboard Editor (Scene re-ordering, duration & prompt adjustments)
+│   ├── Real-Time WebSocket Streaming & Checkpoint Controls (Pause, Resume, Cancel)
 │   ├── Candidate Clips Inspector (Viral score breakdown, start/end boundary trimmer)
-│   ├── 9:16 Vertical Video Player (Real-time playback, download MP4, fullscreen)
-│   └── Provider & Engine Manager (Cloud API keys & local engine diagnostics)
+│   ├── 9:16 Vertical Video Player (HTTP 206 Byte-Range streaming & MP4 download)
+│   └── Privacy Gateway & Storage Settings (Strict Local, Private Hybrid, Cloud Assisted)
 │
-├── Backend (FastAPI + SQLAlchemy + Pydantic v2)
-│   ├── REST API (/api/projects, /api/uploads, /api/generation, /api/videos, /api/clips, /api/jobs, /api/schedules)
-│   ├── Multi-Provider Adapters (Google Gemini, OpenAI, Luma Dream Machine, Runway Gen-3, Kling AI, Pika, ElevenLabs, Whisper)
+├── Backend (FastAPI + SQLAlchemy + Pydantic v2 + WebSockets)
+│   ├── REST API & WebSocket (/api/projects, /api/generation, /api/ws/jobs/{id}, /api/privacy, /api/storage)
+│   ├── Privacy-Aware Model Router (Strict Local, Private Hybrid, Cloud Assisted with transfer audit logging)
+│   ├── Multi-Provider Adapters (Google Veo 2, Runway Gen-3, Luma Dream Machine, Kling AI, ByteDance Seedance, Adobe Firefly, Ollama, Edge-TTS, ElevenLabs, Whisper)
 │   ├── Consistency Engine (Character visual anchor locking, lighting continuity & camera motion planning)
-│   ├── Content-Addressable Asset Cache (SHA-256 deduplication for instant zero-cost retrieval)
-│   ├── Background Scheduler Service (Persistent automated cron generation)
+│   ├── Checkpoint Recovery Engine (Scene-by-scene checkpointing, graceful pause & resume without rework)
 │   └── Multi-Threaded Queue with Concurrency Throttling & Exponential Backoff Retries
 │
 ├── Video Processing Engine (FFmpeg & OpenCV)
@@ -34,8 +35,30 @@ ClipForge AI Architecture
 │   ├── Timed Subtitle Burning (ASS & SRT with Bold Yellow, Clean Minimal, Creator Box presets)
 │   └── Audio Engine (Voiceover synthesis, sidechain dynamic audio ducking, AAC encoding)
 │
+├── External Local Storage System
+│   ├── Master Storage: D:/AI_Video_Storage (renders, uploads, drafts, thumbnails, cache)
+│   ├── Temporary Workspace: D:/AI_Video_Temp (processing chunks with automatic job cleanup)
+│   └── Strict Media Isolation: Zero generated video or media files stored inside repository/codebase
+│
 └── Technical Quality Control (FFprobe validation, aspect ratio, duration, audio stream checks, auto-regeneration)
 ```
+
+---
+
+## Quick Start (Single Launcher)
+
+On Windows, simply run the included batch file:
+
+```cmd
+run.bat
+```
+
+This single command will:
+1. Verify Python virtual environment and Node.js.
+2. Ensure external storage directories (`D:\AI_Video_Storage` and `D:\AI_Video_Temp`).
+3. Launch the FastAPI backend on `http://127.0.0.1:8000`.
+4. Launch the Vite frontend on `http://localhost:5173`.
+5. Open your default web browser automatically.
 
 ---
 
@@ -43,23 +66,23 @@ ClipForge AI Architecture
 
 - **Operating System**: Windows, macOS, or Linux
 - **Python**: 3.10+ (tested on Python 3.11, 3.12, 3.14)
-- **Node.js**: v18+ (tested on Node v24)
+- **Node.js**: v18+ (tested on Node v20, v24)
 - **FFmpeg & FFprobe**: Installed and available on system PATH
 
 ---
 
-## Installation & Setup
+## Installation & Manual Setup
 
-### 1. Clone & Set Up Backend
+### 1. Set Up Backend
 
 ```powershell
 # Create Python virtual environment
 python -m venv venv
 
 # Activate virtual environment
-# On Windows:
+# Windows:
 .\venv\Scripts\activate
-# On Linux/macOS:
+# Linux/macOS:
 source venv/bin/activate
 
 # Install Python dependencies
@@ -76,100 +99,52 @@ cd ..
 
 ### 3. Configure Environment Variables
 
-Copy the example environment configuration:
-
 ```powershell
 cp .env.example .env
 ```
 
 ---
 
-## Running the Application
-
-### 1. Start the Backend API Server
-
-```powershell
-# Activate virtual environment if not already active
-.\venv\Scripts\activate
-
-# Start FastAPI server on port 8000
-python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
-```
-The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
-
-### 2. Start the Frontend Development Studio
-
-In a separate terminal:
-
-```powershell
-cd frontend
-npm run dev
-```
-Open your browser at `http://localhost:5173`.
-
----
-
 ## Running Automated Tests
 
-Run the full backend and video processing test suite:
+Run the full backend, video processing, privacy gateway, and external storage test suite:
 
 ```powershell
-# Run all tests with verbose output
-.\venv\Scripts\python.exe -m pytest -v
+$env:PYTHONPATH='backend'; .\venv\Scripts\python.exe -m pytest -v
 ```
 
-All 11 automated test cases verify:
+All 19 automated test cases verify:
 - FFprobe metadata extraction & stream inspection (`test_ffprobe.py`)
 - Multi-factor hook & duration clip ranking (`test_clip_ranking.py`)
 - ASS and SRT timed subtitle formatting (`test_subtitles.py`)
 - Technical QC aspect ratio and duration verification (`test_qc.py`)
 - Full End-to-End Video-to-Shorts processing (`test_e2e_pipeline.py`)
 - Full End-to-End Prompt-to-Video generation pipeline (`test_prompt_to_video.py`)
+- External storage isolation & zero media in workspace (`test_external_storage.py`)
+- Privacy gateway tiers & model router audit logging (`test_privacy_and_checkpoint.py`)
+- Scene-by-scene checkpoint recovery and pause/resume (`test_privacy_and_checkpoint.py`)
 
 ---
 
-## How to Test the Workflows
+## Privacy-Aware Model Router
 
-### Testing Workflow A: Prompt to Video
+ClipForge AI includes a strict 3-tier privacy governance engine:
 
-1. Open the UI at `http://localhost:5173`.
-2. Click **Create New Video** &rarr; select **Workflow A: Prompt to Video**.
-3. Choose one of the preset prompts or type your own:
-   - Example: *"Create a 30-second cinematic Instagram Reel about an AI fitness tracker with high energy visuals and call to action."*
-4. Click **Generate Storyboard First** to view and customize scene durations, prompts, and narration.
-5. Click **Generate & Render Full Video**.
-6. The live job progress modal will display real stages (*Planning* &rarr; *Generating Assets* &rarr; *Assembling* &rarr; *Quality Checking* &rarr; *Completed*).
-7. View the final vertical 9:16 MP4 in the video player and click **Download Final MP4**.
-
-### Testing Workflow B: Video to Shorts / Reels
-
-1. Open the UI and select **Workflow B: Video to Shorts**.
-2. Drag and drop any landscape video (MP4, MOV, or WebM).
-3. The video metadata (resolution, duration, codecs) is displayed.
-4. Select target clip length (e.g., 30s) and crop mode (*Smart Crop*, *Center Crop*, or *Blurred Background*).
-5. Click **Analyze Speech & Find Viral Clips**.
-6. View the scored candidate clips with opening hooks and duration breakdowns.
-7. Adjust the start/end trimmer sliders if desired.
-8. Click **Render 9:16 Short**.
-9. Preview and download the individual rendered short MP4 with burned subtitles!
-
----
-
-## Configuring Cloud AI Providers
-
-ClipForge AI operates seamlessly offline using deterministic local synthesis. When cloud API keys are added to `.env`, ClipForge automatically transitions to cloud providers:
-
-| Provider Type | Supported Cloud Adapters | Environment Variables |
+| Privacy Tier | Behavior | Permitted Providers |
 |---|---|---|
-| **LLM Planner** | Google Gemini 1.5 Flash, OpenAI GPT-4o | `LLM_PROVIDER=gemini`<br>`LLM_API_KEY=your_key` |
-| **Video Generation** | Luma Dream Machine, Runway Gen-2 | `VIDEO_PROVIDER=luma`<br>`VIDEO_API_KEY=your_key` |
-| **Audio Voiceover** | ElevenLabs Multilingual v2, OpenAI TTS-1 | `AUDIO_PROVIDER=elevenlabs`<br>`AUDIO_API_KEY=your_key` |
-| **Speech-to-Text** | OpenAI Whisper-1 | `TRANSCRIPTION_PROVIDER=whisper`<br>`TRANSCRIPTION_API_KEY=your_key` |
+| **Strict Local** | 100% offline. Zero external API calls. Everything generated locally. | Ollama (Local LLM), Edge-TTS, Local FFmpeg / OpenCV |
+| **Private Hybrid** | Default. Metadata & files stay local; only vetted requests go to approved cloud APIs. | Vetted allowlist with approval & audit logging |
+| **Cloud Assisted** | Multi-provider cloud models enabled with full concurrency. | Google Veo 2, Runway Gen-3, Luma Dream Machine, Kling AI, Seedance, Adobe Firefly, ElevenLabs, Whisper |
+
+Every transfer attempt is vetted through the centralized `PrivacyGateway` and committed to the `transfer_audit_logs` database table. A global **Cloud Transfer Kill Switch** allows instant locking of all network transfers with one click.
 
 ---
 
-## Known Limitations & Production Notes
+## External Media Storage Isolation
 
-1. **Local Mode Audio Tone**: In offline demo mode, synthetic audio tracks use deterministic tones so that video generation and audio mixing can be tested completely without external network dependencies.
-2. **Video Provider Rate Limits**: When using cloud video generation APIs (such as Luma or Runway), generation jobs are processed asynchronously; progress polling respects provider rate limits.
-3. **Database**: By default, SQLite is used for zero-latency local development. For production horizontal scaling, set `DATABASE_URL=postgresql://...` and run Celery workers via Docker Compose.
+Generated media, audio tracks, and temporary processing chunks are stored **strictly outside the project codebase**:
+
+- **Permanent Media Storage**: `D:/AI_Video_Storage` (`renders/`, `uploads/`, `drafts/`, `thumbnails/`, `cache/`)
+- **Temporary Processing Workspace**: `D:/AI_Video_Temp` (`processing/`, `chunks/`)
+- Temporary files are automatically cleaned up after job completion or failure.
+- Final MP4 exports remain permanently in external storage until deleted by the user.

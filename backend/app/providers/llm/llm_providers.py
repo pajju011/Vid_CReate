@@ -142,3 +142,69 @@ class GeminiLLMProvider(BaseLLMProvider):
 
     def rank_clips(self, candidate_clips: List[Dict[str, Any]], target_platform: str) -> List[Dict[str, Any]]:
         return self._mock.rank_clips(candidate_clips, target_platform)
+
+class OllamaLLMProvider(BaseLLMProvider):
+    """
+    Local Ollama LLM provider adapter.
+    100% Offline, Strict Local privacy tier compliant.
+    Connects to local Ollama daemon (default: http://localhost:11434).
+    """
+    def __init__(self, base_url: str = None, model: str = None):
+        self.base_url = (base_url or getattr(settings, "OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+        self.model = model or getattr(settings, "OLLAMA_MODEL", "llama3")
+        self._mock = MockLLMProvider()
+
+    def _clean_json_response(self, text: str) -> Any:
+        clean = text.strip()
+        if "```json" in clean:
+            clean = clean.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean:
+            clean = clean.split("```")[1].split("```")[0].strip()
+        return json.loads(clean)
+
+    def generate_script(self, prompt: str, duration_seconds: float, platform: str) -> Dict[str, Any]:
+        prompt_text = (
+            f"You are an expert short-form viral scriptwriter for {platform}. "
+            f"Generate a script for: {prompt}. Duration: {duration_seconds}s. "
+            f"Respond ONLY with valid JSON having keys: title, platform, duration_seconds, hook, core_message, call_to_action."
+        )
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    f"{self.base_url}/api/generate",
+                    json={"model": self.model, "prompt": prompt_text, "stream": False, "format": "json"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return self._clean_json_response(data.get("response", "{}"))
+        except Exception as e:
+            logger.info(f"Ollama local LLM offline or unreachable ({e}), using deterministic local director")
+        return self._mock.generate_script(prompt, duration_seconds, platform)
+
+    def generate_storyboard(self, script_data: Dict[str, Any], num_scenes: int, style: str) -> List[Dict[str, Any]]:
+        prompt_text = (
+            f"Generate a {num_scenes}-scene storyboard in {style} style for {script_data.get('platform', 'reels')}. "
+            f"Script: {json.dumps(script_data)}. "
+            f"Respond ONLY with a JSON array of scene objects with keys: scene_number, duration_seconds, purpose, visual_prompt, camera_movement, narration, caption, transition."
+        )
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(
+                    f"{self.base_url}/api/generate",
+                    json={"model": self.model, "prompt": prompt_text, "stream": False, "format": "json"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    res = self._clean_json_response(data.get("response", "[]"))
+                    if isinstance(res, list) and len(res) > 0:
+                        return res
+        except Exception as e:
+            logger.info(f"Ollama storyboard generation fallback: {e}")
+        return self._mock.generate_storyboard(script_data, num_scenes, style)
+
+    def analyze_transcript(self, transcript_text: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return self._mock.analyze_transcript(transcript_text, segments)
+
+    def rank_clips(self, candidate_clips: List[Dict[str, Any]], target_platform: str) -> List[Dict[str, Any]]:
+        return self._mock.rank_clips(candidate_clips, target_platform)
+
