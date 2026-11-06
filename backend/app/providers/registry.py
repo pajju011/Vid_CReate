@@ -11,6 +11,7 @@ from app.providers.video.video_providers import (
     AdobeFireflyVideoProvider
 )
 from app.providers.video.omni_provider import OmniForgeVideoProvider
+from app.providers.video.gemini_omni_provider import GeminiOmniVideoProvider
 from app.providers.audio.audio_providers import (
     MockAudioProvider, EdgeTTSAudioProvider, ElevenLabsAudioProvider, OpenAIAudioProvider
 )
@@ -43,6 +44,13 @@ class ProviderRegistry:
             return OmniForgeVideoProvider()
 
         provider_name = (settings.VIDEO_PROVIDER or "omni").lower()
+
+        if provider_name in ("gemini_omni", "gemini_video"):
+            key = settings.VIDEO_API_KEY or settings.LLM_API_KEY
+            if key:
+                allowed, _ = privacy_gateway.can_transfer_to_cloud("gemini", "video_generation", "Gemini Omni generation")
+                if allowed:
+                    return GeminiOmniVideoProvider(api_key=key)
 
         if provider_name == "veo" and settings.VIDEO_API_KEY:
             allowed, _ = privacy_gateway.can_transfer_to_cloud("veo", "video_generation", "Google Veo 2 generation")

@@ -20,6 +20,7 @@ from app.providers.video.video_providers import (
     KlingVideoProvider, GoogleVeoVideoProvider, SeedanceVideoProvider,
     AdobeFireflyVideoProvider, PikaVideoProvider
 )
+from app.providers.video.gemini_omni_provider import GeminiOmniVideoProvider
 
 class OmniForgeVideoProvider(BaseVideoProvider):
     """
@@ -89,7 +90,22 @@ class OmniForgeVideoProvider(BaseVideoProvider):
 
         job_id = f"omni_{uuid.uuid4().hex[:8]}"
 
-        # --- STEP 1: Attempt Premier Configured Cloud Provider (If API Key present & permitted) ---
+        # --- STEP 1: Attempt Gemini Omni Native Video Generation (models/gemini-omni-1.2-flash) ---
+        gemini_key = settings.VIDEO_API_KEY or settings.LLM_API_KEY
+        if gemini_key:
+            allowed, _ = privacy_gateway.can_transfer_to_cloud("gemini", "video_generation", prompt)
+            if allowed and is_network_available():
+                try:
+                    logger.info("[OmniForge] Generating video via Google GenAI: models/gemini-omni-1.2-flash...")
+                    omni_client = GeminiOmniVideoProvider(api_key=gemini_key)
+                    res = omni_client.generate_video(prompt, duration_seconds, aspect_ratio, tw, th)
+                    if res.get("status") == "completed" and res.get("video_path") and Path(res["video_path"]).exists():
+                        logger.info(f"[OmniForge] models/gemini-omni-1.2-flash generated video: {res['video_path']}")
+                        return res
+                except Exception as e:
+                    logger.warning(f"[OmniForge] Gemini Omni generation error ({e}). Cascading to next tier...")
+
+        # --- STEP 2: Attempt Premier Configured Cloud Provider (Veo, Luma, Runway, Kling, Seedance, Firefly) ---
         configured_provider = (settings.VIDEO_PROVIDER or "").lower()
         if settings.VIDEO_API_KEY and configured_provider not in ("mock", "pollinations", "omni", "omniforge"):
             allowed, _ = privacy_gateway.can_transfer_to_cloud(configured_provider, "video_generation", prompt)
