@@ -38,15 +38,23 @@ def create_sample_scene_video(
     height: int = 1920
 ) -> bool:
     """
-    Generate a sample scene video in 9:16 vertical format.
+    Generate an animated cinematic gradient scene video in 9:16 vertical format.
+    Provides smooth dynamic motion graphics when offline.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    colors = ["blue", "purple", "darkred", "teal", "indigo"]
-    color = colors[(scene_number - 1) % len(colors)]
-    vf = f"color=c={color}:size={width}x{height}:duration={duration}:rate=30"
+    palette_pairs = [
+        ("0x0f172a", "0x4338ca"), # Dark Slate to Indigo
+        ("0x111827", "0x059669"), # Slate to Emerald
+        ("0x1e1b4b", "0x7c3aed"), # Deep Violet to Purple
+        ("0x18181b", "0xd97706"), # Charcoal to Amber
+        ("0x022c22", "0x0d9488"), # Forest to Teal
+    ]
+    c0, c1 = palette_pairs[(scene_number - 1) % len(palette_pairs)]
+    vf = f"gradients=s={width}x{height}:d={duration}:c0={c0}:c1={c1}:speed=0.01"
     args = [
         "-f", "lavfi", "-i", vf,
-        "-f", "lavfi", "-i", f"sine=frequency={300 + scene_number * 50}:duration={duration}",
+        "-f", "lavfi", "-i", f"sine=frequency={160 + scene_number * 35}:duration={duration}",
+        "-af", "volume=0.15,lowpass=f=800",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",

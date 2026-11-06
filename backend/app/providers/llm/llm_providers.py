@@ -8,44 +8,82 @@ from app.providers.base import BaseLLMProvider
 class MockLLMProvider(BaseLLMProvider):
     """
     Deterministic local AI planner for offline, demo, and zero-cost development.
-    Produces high-quality, structured storyboards and viral clip selections.
+    Dynamically analyzes the user prompt to craft custom scripts, varied scene hooks,
+    and tailored narration without repetitive static templates.
     """
     def generate_script(self, prompt: str, duration_seconds: float, platform: str) -> Dict[str, Any]:
+        clean = prompt.strip().rstrip(".")
+        words = clean.split()
+        subject = " ".join(words[:4]) if len(words) >= 4 else clean
+
+        # Context-aware hooks based on prompt keywords
+        lower = clean.lower()
+        if any(w in lower for w in ["fitness", "workout", "gym", "health", "exercise"]):
+            hook = f"Want to revolutionize your health? Check out {clean}."
+            core = f"Discover the breakthrough approach that changes how you train and recover."
+            cta = "Save this reel and start your transformation today!"
+        elif any(w in lower for w in ["tech", "ai", "software", "code", "app", "device"]):
+            hook = f"This new innovation is changing everything: {clean}."
+            core = f"Experience state-of-the-art power and automation right in your hands."
+            cta = "Follow for the latest tech breakdowns and share your thoughts!"
+        elif any(w in lower for w in ["business", "money", "finance", "crypto", "market"]):
+            hook = f"Here is the secret most people miss about {clean}."
+            core = f"Unlock proven strategies that drive exponential growth and real results."
+            cta = "Drop a comment below and tap the link in bio!"
+        else:
+            hook = f"You won't believe what happens when you experience {clean}."
+            core = f"From concept to reality, see how {clean} delivers stunning results."
+            cta = "Double-tap if you agree and follow for more daily content!"
+
         return {
-            "title": f"Viral Short: {prompt[:30].strip()}",
+            "title": f"Spotlight: {subject.title()}",
             "platform": platform,
             "duration_seconds": duration_seconds,
-            "hook": f"Stop scrolling! Here is what you need to know about {prompt[:40]}.",
-            "core_message": f"Discover how {prompt} is transforming everything right now.",
-            "call_to_action": "Follow for more daily insights and drop your thoughts below!"
+            "hook": hook,
+            "core_message": core,
+            "call_to_action": cta
         }
 
     def generate_storyboard(self, script_data: Dict[str, Any], num_scenes: int, style: str) -> List[Dict[str, Any]]:
         duration_per_scene = round(script_data.get("duration_seconds", 30.0) / max(1, num_scenes), 1)
-        purposes = ["hook", "problem", "solution", "demonstration", "call_to_action"]
+        hook = script_data.get("hook", "Discover the future.")
+        core = script_data.get("core_message", "Revolutionary capabilities.")
+        cta = script_data.get("call_to_action", "Follow for more updates.")
+        title = script_data.get("title", "Feature").replace("Spotlight: ", "")
 
         scenes = []
         for i in range(1, num_scenes + 1):
-            purpose = purposes[(i - 1) % len(purposes)]
-            if purpose == "hook":
-                prompt_text = f"Cinematic ultra-detailed macro opening shot, high energy {style} lighting"
-                narration = script_data.get("hook", "Stop scrolling and check this out.")
-                caption = "STOP SCROLLING!"
-            elif purpose == "call_to_action":
-                prompt_text = f"Sleek dynamic outro shot with 3D glowing graphics, {style} aesthetic"
-                narration = script_data.get("call_to_action", "Follow for more and share!")
-                caption = "FOLLOW FOR MORE!"
+            if i == 1:
+                prompt_text = f"Dynamic high-impact opening macro shot of {title}, dramatic {style} lighting, shallow depth of field"
+                narration = hook
+                caption = "DISCOVER THIS"
+                cam = "slow_push_in"
+                purpose = "hook"
+            elif i == num_scenes:
+                prompt_text = f"Sleek cinematic closing shot highlighting {title}, neon backlighting, dynamic 3D reflections"
+                narration = cta
+                caption = "FOLLOW & SHARE"
+                cam = "pull_back_reveal"
+                purpose = "call_to_action"
+            elif i == 2:
+                prompt_text = f"Close-up detailed demonstration of {title} in action, cinematic volumetric lighting, 8k {style}"
+                narration = core
+                caption = "PROVEN RESULTS"
+                cam = "tracking_pan_right"
+                purpose = "demonstration"
             else:
-                prompt_text = f"Fast-paced visual showing key benefits, smooth camera pan, {style} visual style"
-                narration = "Witness the seamless power and efficiency in action."
-                caption = "NEXT-GEN PERFORMANCE"
+                prompt_text = f"Vibrant lifestyle shot showing real-world benefits of {title}, natural lens flare, {style} atmosphere"
+                narration = f"Experience seamless quality and next-level design with {title}."
+                caption = "NEXT LEVEL"
+                cam = "orbit_pan"
+                purpose = "proof"
 
             scenes.append({
                 "scene_number": i,
                 "duration_seconds": duration_per_scene,
                 "purpose": purpose,
                 "visual_prompt": prompt_text,
-                "camera_movement": "slow_push_in" if i % 2 == 1 else "tracking_pan",
+                "camera_movement": cam,
                 "narration": narration,
                 "caption": caption,
                 "transition": "fade"
@@ -66,11 +104,22 @@ class MockLLMProvider(BaseLLMProvider):
         return sorted(candidate_clips, key=lambda c: c.get("score", 0.0), reverse=True)
 
 class GeminiLLMProvider(BaseLLMProvider):
-    """Real Google Gemini API provider adapter (Free Tier on Google AI Studio)."""
+    """Real Google Gemini API provider adapter (Free Tier on Google AI Studio & Cloud)."""
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self.api_key = api_key.strip()
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
         self._mock = MockLLMProvider()
+
+    def _get_headers_and_url(self, endpoint: str) -> tuple[Dict[str, str], str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key.startswith("AQ.") or self.api_key.startswith("ya29."):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["x-goog-api-key"] = self.api_key
+            url = f"{self.base_url}/{endpoint}"
+        else:
+            headers["x-goog-api-key"] = self.api_key
+            url = f"{self.base_url}/{endpoint}?key={self.api_key}"
+        return headers, url
 
     def _clean_json_response(self, text: str) -> Any:
         clean = text.strip()
@@ -84,7 +133,7 @@ class GeminiLLMProvider(BaseLLMProvider):
         return json.loads(clean)
 
     def generate_script(self, prompt: str, duration_seconds: float, platform: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/models/gemini-1.5-flash:generateContent?key={self.api_key}"
+        headers, url = self._get_headers_and_url("models/gemini-1.5-flash:generateContent")
         sys_instruction = (
             f"You are an expert short-form viral scriptwriter for {platform}. "
             f"Return ONLY valid JSON with keys: 'title', 'platform', 'duration_seconds', 'hook', 'core_message', 'call_to_action'."
@@ -99,19 +148,19 @@ class GeminiLLMProvider(BaseLLMProvider):
         }
         try:
             with httpx.Client(timeout=30.0) as client:
-                resp = client.post(url, json=payload)
+                resp = client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
                     return self._clean_json_response(raw_text)
                 else:
-                    logger.warning(f"Gemini API returned status {resp.status_code}, falling back to deterministic director")
+                    logger.warning(f"Gemini API returned status {resp.status_code} ({resp.text[:200]}), falling back to deterministic director")
         except Exception as e:
             logger.warning(f"Gemini API error ({e}), falling back to deterministic director")
         return self._mock.generate_script(prompt, duration_seconds, platform)
 
     def generate_storyboard(self, script_data: Dict[str, Any], num_scenes: int, style: str) -> List[Dict[str, Any]]:
-        url = f"{self.base_url}/models/gemini-1.5-flash:generateContent?key={self.api_key}"
+        headers, url = self._get_headers_and_url("models/gemini-1.5-flash:generateContent")
         sys_instruction = (
             f"Generate a {num_scenes}-scene storyboard in {style} style for {script_data.get('platform', 'reels')}. "
             "Return ONLY a JSON array of objects with keys: 'scene_number', 'duration_seconds', 'purpose', 'visual_prompt', 'camera_movement', 'narration', 'caption', 'transition'."
@@ -126,15 +175,16 @@ class GeminiLLMProvider(BaseLLMProvider):
         }
         try:
             with httpx.Client(timeout=30.0) as client:
-                resp = client.post(url, json=payload)
+                resp = client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
                     return self._clean_json_response(raw_text)
                 else:
-                    logger.warning(f"Gemini API status {resp.status_code}, falling back to storyboard planner")
+                    logger.warning(f"Gemini API status {resp.status_code} ({resp.text[:200]}), falling back to storyboard planner")
         except Exception as e:
             logger.warning(f"Gemini API error ({e}), falling back to storyboard planner")
+        return self._mock.generate_storyboard(script_data, num_scenes, style)
         return self._mock.generate_storyboard(script_data, num_scenes, style)
 
     def analyze_transcript(self, transcript_text: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

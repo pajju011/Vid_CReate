@@ -10,6 +10,7 @@ from app.providers.video.video_providers import (
     KlingVideoProvider, PikaVideoProvider, GoogleVeoVideoProvider, SeedanceVideoProvider,
     AdobeFireflyVideoProvider
 )
+from app.providers.video.omni_provider import OmniForgeVideoProvider
 from app.providers.audio.audio_providers import (
     MockAudioProvider, EdgeTTSAudioProvider, ElevenLabsAudioProvider, OpenAIAudioProvider
 )
@@ -39,9 +40,9 @@ class ProviderRegistry:
     def get_video_provider() -> BaseVideoProvider:
         # Check Strict Local policy
         if privacy_gateway.privacy_mode == "strict_local":
-            return MockVideoProvider()
+            return OmniForgeVideoProvider()
 
-        provider_name = (settings.VIDEO_PROVIDER or "mock").lower()
+        provider_name = (settings.VIDEO_PROVIDER or "omni").lower()
 
         if provider_name == "veo" and settings.VIDEO_API_KEY:
             allowed, _ = privacy_gateway.can_transfer_to_cloud("veo", "video_generation", "Google Veo 2 generation")
@@ -71,12 +72,9 @@ class ProviderRegistry:
             allowed, _ = privacy_gateway.can_transfer_to_cloud("pika", "video_generation", "Pika AI generation")
             if allowed:
                 return PikaVideoProvider(api_key=settings.VIDEO_API_KEY)
-        elif provider_name in ("pollinations", "free_ai"):
-            allowed, _ = privacy_gateway.can_transfer_to_cloud("pollinations", "video_generation", "Pollinations visual generation")
-            if allowed:
-                return PollinationsVideoProvider()
 
-        return MockVideoProvider()
+        # Default to the master all-in-one OmniForge Engine
+        return OmniForgeVideoProvider()
 
     @staticmethod
     def get_audio_provider() -> BaseAudioProvider:
@@ -126,7 +124,7 @@ class ProviderRegistry:
             "video": {
                 "configured_provider": settings.VIDEO_PROVIDER,
                 "is_active": True,
-                "is_real_api": bool(settings.VIDEO_API_KEY) or settings.VIDEO_PROVIDER in ("pollinations", "mock"),
+                "is_real_api": bool(settings.VIDEO_API_KEY) or settings.VIDEO_PROVIDER in ("omni", "pollinations", "mock", None),
                 "model_info": (
                     "Google Veo 2 API" if settings.VIDEO_PROVIDER == "veo" and settings.VIDEO_API_KEY
                     else "Luma Dream Machine API" if settings.VIDEO_PROVIDER == "luma" and settings.VIDEO_API_KEY
@@ -134,7 +132,7 @@ class ProviderRegistry:
                     else "Kling AI 1.5 API" if settings.VIDEO_PROVIDER == "kling" and settings.VIDEO_API_KEY
                     else "ByteDance Seedance API" if settings.VIDEO_PROVIDER == "seedance" and settings.VIDEO_API_KEY
                     else "Adobe Firefly Video API" if settings.VIDEO_PROVIDER == "firefly" and settings.VIDEO_API_KEY
-                    else "Pollinations Flux.1 AI Visuals + Ken Burns Motion (Free)"
+                    else "OmniForge Master Video Engine (Multi-Tier Flux.1 + Camera Physics + Premier Cloud)"
                 )
             },
             "audio": {
