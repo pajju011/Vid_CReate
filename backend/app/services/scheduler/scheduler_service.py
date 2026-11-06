@@ -15,20 +15,23 @@ class SchedulerService:
     def __init__(self, check_interval_seconds: int = 10):
         self.check_interval_seconds = check_interval_seconds
         self._running = False
+        self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def start(self):
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="clipforge-scheduler")
         self._thread.start()
         logger.info("ClipForge background scheduler service started.")
 
     def stop(self):
         self._running = False
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=1.0)
         logger.info("ClipForge background scheduler service stopped.")
 
     def _run_loop(self):
@@ -37,7 +40,8 @@ class SchedulerService:
                 self.process_due_tasks()
             except Exception as e:
                 logger.error(f"Error in scheduler process loop: {e}")
-            time.sleep(self.check_interval_seconds)
+            if self._stop_event.wait(self.check_interval_seconds):
+                break
 
     def process_due_tasks(self):
         now = datetime.now(timezone.utc)
@@ -77,7 +81,8 @@ class SchedulerService:
             current_step="Scheduled run dispatched..."
         )
         session.add(job)
-        session.flush()
+        session.commit()
+        session.refresh(job)
 
         # 3. Enqueue to persistent worker
         if task_type == "prompt_to_video":

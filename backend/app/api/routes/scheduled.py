@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.entities import ScheduledTask
@@ -26,8 +26,7 @@ class ScheduledTaskResponse(BaseModel):
     last_run_at: Optional[datetime]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("", response_model=List[ScheduledTaskResponse])
 def list_scheduled_tasks(db: Session = Depends(get_db)):

@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # --- Project Schemas ---
 class ProjectBase(BaseModel):
@@ -33,8 +33,7 @@ class VideoAssetResponse(BaseModel):
     stream_url: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SceneResponse(BaseModel):
     id: str
@@ -52,8 +51,7 @@ class SceneResponse(BaseModel):
     thumbnail_path: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ClipResponse(BaseModel):
     id: str
@@ -74,8 +72,7 @@ class ClipResponse(BaseModel):
     stream_url: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class JobResponse(BaseModel):
     id: str
@@ -92,8 +89,7 @@ class JobResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TransferAuditLogResponse(BaseModel):
     id: str
@@ -106,8 +102,7 @@ class TransferAuditLogResponse(BaseModel):
     payload_preview: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProjectResponse(ProjectBase):
     id: str
@@ -115,8 +110,7 @@ class ProjectResponse(ProjectBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProjectDetailResponse(ProjectResponse):
     assets: List[VideoAssetResponse] = Field(default_factory=list)

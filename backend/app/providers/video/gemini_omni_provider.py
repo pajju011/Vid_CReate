@@ -40,16 +40,35 @@ class GeminiOmniVideoProvider(BaseVideoProvider):
             client = genai.Client(api_key=self.api_key)
             generation_config = {'max_output_tokens': 65536}
 
-            interaction = client.interactions.create(
-                model=self.model_name,
-                input=f"{prompt}, cinematic 8k quality, aspect ratio {aspect_ratio}",
-                generation_config=generation_config,
-                response_modalities=['video'],
-                response_format={
-                    'type': 'video',
-                    'duration': dur_str,
-                },
-            )
+            candidate_models = [
+                self.model_name,
+                "models/gemini-omni-1.1-flash",
+                "gemini-omni-1.1-flash",
+                "models/gemini-2.0-flash-exp"
+            ]
+
+            interaction = None
+            last_err = None
+            for m in candidate_models:
+                try:
+                    interaction = client.interactions.create(
+                        model=m,
+                        input=f"{prompt}, cinematic 8k quality, aspect ratio {aspect_ratio}",
+                        generation_config=generation_config,
+                        response_modalities=['video'],
+                        response_format={
+                            'type': 'video',
+                            'duration': dur_str,
+                        },
+                    )
+                    logger.info(f"[Gemini Omni] Successfully invoked model '{m}'")
+                    break
+                except Exception as m_err:
+                    last_err = m_err
+                    logger.warning(f"[Gemini Omni] Model '{m}' attempt: {m_err}")
+
+            if not interaction:
+                raise last_err or RuntimeError("Failed to invoke any Gemini Omni model.")
 
             video_saved = False
             for step in getattr(interaction, 'steps', []):

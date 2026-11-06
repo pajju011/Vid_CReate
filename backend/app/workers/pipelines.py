@@ -288,15 +288,21 @@ def run_render_clip_pipeline(job_id: str, clip_id: str):
 def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict):
     """Full Prompt-to-Video pipeline with checkpoint recovery and pause/resume support."""
     try:
-        # Check initial state and checkpoint
-        with SessionLocal() as session:
-            job = session.query(Job).filter(Job.id == job_id).first()
-            if not job:
-                raise ValueError(f"Job {job_id} not found.")
-            if job.status in ("paused", "cancelled"):
-                logger.info(f"Job {job_id} is already {job.status}. Exiting.")
-                return
-            checkpoint = (job.checkpoint_data or {})
+        # Check initial state and checkpoint with brief retry for database synchronization
+        job = None
+        for attempt in range(5):
+            with SessionLocal() as session:
+                job = session.query(Job).filter(Job.id == job_id).first()
+                if job:
+                    if job.status in ("paused", "cancelled"):
+                        logger.info(f"Job {job_id} is already {job.status}. Exiting.")
+                        return
+                    checkpoint = (job.checkpoint_data or {})
+                    break
+            time.sleep(0.2)
+
+        if not job:
+            raise ValueError(f"Job {job_id} not found.")
 
         completed_scenes = dict(checkpoint.get("completed_scenes", {}))
 
