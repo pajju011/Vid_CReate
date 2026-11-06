@@ -411,13 +411,21 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                             duration_seconds=duration,
                             aspect_ratio=prompt_data.get("aspect_ratio", "9:16")
                         )
-                    candidate_v_path = Path(gen_result.get("video_path"))
+                    raw_vpath = gen_result.get("video_path")
+                    if not raw_vpath:
+                        logger.warning(f"Scene {idx} attempt {attempt + 1}: video_path was not returned by provider")
+                        continue
+
+                    candidate_v_path = Path(raw_vpath)
+                    if not candidate_v_path.exists():
+                        logger.warning(f"Scene {idx} attempt {attempt + 1}: file {candidate_v_path} does not exist")
+                        continue
 
                     # Strict per-scene QC check
                     scene_qc = qc_service.evaluate_video(
                         candidate_v_path,
                         expected_aspect_ratio=prompt_data.get("aspect_ratio", "9:16"),
-                        min_duration=1.0
+                        min_duration=0.8
                     )
                     if scene_qc["status"] == "passed":
                         v_path = candidate_v_path

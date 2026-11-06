@@ -61,6 +61,77 @@ class OmniForgeVideoProvider(BaseVideoProvider):
         clean = prompt.lower().strip()
         return int(hashlib.md5(clean.encode("utf-8")).hexdigest()[:8], 16) % 1000000
 
+    def _extract_subject_queries(self, prompt: str) -> List[str]:
+        """Extracts prioritized subject search queries from a descriptive prompt."""
+        import re
+        stopwords = {
+            "ultra", "cinematic", "photorealistic", "detailed", "resolution", "lighting", "shot",
+            "vertical", "horizontal", "format", "scene", "close", "slow", "motion", "high",
+            "impact", "macro", "dynamic", "sleek", "opening", "closing", "demonstration", "style",
+            "vibrant", "action", "with", "from", "that", "this", "these", "those", "being", "pulled",
+            "into", "around", "over", "under", "through", "delicious", "perfect", "irresistible", "quality",
+            "frame", "framing", "masterpiece", "footage", "showing", "capturing", "focus"
+        }
+        clean = re.sub(r"[^a-zA-Z0-9\s]", " ", prompt)
+        words = [w.lower() for w in clean.split() if len(w) > 3 and w.lower() not in stopwords]
+        
+        queries = []
+        if len(words) >= 2:
+            queries.append(f"{words[0]} {words[1]}")
+        if len(words) >= 1:
+            queries.append(words[0])
+            queries.append(f"{words[0]} food" if any(f in prompt.lower() for f in ["pizza", "cheese", "food", "burger", "coffee"]) else f"{words[0]} product")
+        return queries or ["food pizza"]
+
+    def _acquire_scene_visual(self, prompt: str, tw: int, th: int, seed: int) -> Optional[bytes]:
+        """
+        Multi-tier visual synthesis cascade:
+        1. Free Generative AI Diffusion (Pollinations default zero-cost engine).
+        2. Wikimedia High-Resolution Authentic Creative Commons Photography.
+        """
+        # Tier 1: Free Generative AI Image Synthesis
+        try:
+            enriched = self._enrich_prompt(prompt, "9:16" if th > tw else "16:9")
+            encoded_prompt = urllib.parse.quote(enriched)
+            # Default Pollinations endpoint (omitting paywalled model=flux/turbo)
+            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={tw}&height={th}&nologo=true&seed={seed}"
+            with httpx.Client(timeout=14.0, follow_redirects=True) as client:
+                resp = client.get(url)
+                if resp.status_code == 200 and len(resp.content) > 4000 and "image" in resp.headers.get("content-type", ""):
+                    logger.info(f"[OmniForge] Successfully synthesized AI visual ({len(resp.content)} bytes)")
+                    return resp.content
+                else:
+                    logger.info(f"[OmniForge] Pollinations returned {resp.status_code}, routing to authentic photography...")
+        except Exception as e:
+            logger.info(f"[OmniForge] Generative AI fetch error ({e}), routing to authentic photography...")
+
+        # Tier 2: Wikimedia Creative Commons High-Res Authentic Photography
+        try:
+            headers = {"User-Agent": "ClipForgeAI/1.0 (https://github.com/clipforge; contact@clipforge.local) python-httpx"}
+            candidate_queries = self._extract_subject_queries(prompt)
+            for query in candidate_queries:
+                wiki_url = f"https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch={urllib.parse.quote(query)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|mime&format=json"
+                with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                    w_resp = client.get(wiki_url, headers=headers)
+                    if w_resp.status_code == 200:
+                        pages = w_resp.json().get("query", {}).get("pages", {})
+                        urls = []
+                        for pid, pdata in pages.items():
+                            ii = pdata.get("imageinfo", [{}])[0]
+                            mime = ii.get("mime", "").lower()
+                            if any(ext in mime for ext in ["jpeg", "jpg", "png", "webp"]):
+                                urls.append(ii.get("url"))
+                        if urls:
+                            chosen_url = urls[seed % len(urls)]
+                            img_resp = client.get(chosen_url, headers=headers)
+                            if img_resp.status_code == 200 and len(img_resp.content) > 4000:
+                                logger.info(f"[OmniForge] Acquired authentic photo ({len(img_resp.content)} bytes) for query '{query}'")
+                                return img_resp.content
+        except Exception as e:
+            logger.warning(f"[OmniForge] Stock photo fetch error: {e}")
+
+        return None
+
     def generate_video(
         self,
         prompt: str,
@@ -90,29 +161,17 @@ class OmniForgeVideoProvider(BaseVideoProvider):
 
         job_id = f"omni_{uuid.uuid4().hex[:8]}"
 
-        # --- STEP 1: Attempt Gemini Omni Native Video Generation (models/gemini-omni-1.2-flash) ---
-        gemini_key = settings.VIDEO_API_KEY or settings.LLM_API_KEY
-        if gemini_key:
-            allowed, _ = privacy_gateway.can_transfer_to_cloud("gemini", "video_generation", prompt)
-            if allowed and is_network_available():
-                try:
-                    logger.info("[OmniForge] Generating video via Google GenAI: models/gemini-omni-1.2-flash...")
-                    omni_client = GeminiOmniVideoProvider(api_key=gemini_key)
-                    res = omni_client.generate_video(prompt, duration_seconds, aspect_ratio, tw, th)
-                    if res.get("status") == "completed" and res.get("video_path") and Path(res["video_path"]).exists():
-                        logger.info(f"[OmniForge] models/gemini-omni-1.2-flash generated video: {res['video_path']}")
-                        return res
-                except Exception as e:
-                    logger.warning(f"[OmniForge] Gemini Omni generation error ({e}). Cascading to next tier...")
-
-        # --- STEP 2: Attempt Premier Configured Cloud Provider (Veo, Luma, Runway, Kling, Seedance, Firefly) ---
+        # --- STEP 1: Attempt Explicit Cloud Video Provider (Veo, Runway, Luma, Kling, Seedance, Firefly, Gemini Omni) ---
         configured_provider = (settings.VIDEO_PROVIDER or "").lower()
         if settings.VIDEO_API_KEY and configured_provider not in ("mock", "pollinations", "omni", "omniforge"):
             allowed, _ = privacy_gateway.can_transfer_to_cloud(configured_provider, "video_generation", prompt)
-            if allowed:
+            if allowed and is_network_available():
                 try:
-                    logger.info(f"[OmniForge] Routing to premier provider: {configured_provider}")
-                    if configured_provider == "veo":
+                    logger.info(f"[OmniForge] Routing to premier video provider: {configured_provider}")
+                    provider = None
+                    if configured_provider in ("gemini_omni", "omni_gemini"):
+                        provider = GeminiOmniVideoProvider(api_key=settings.VIDEO_API_KEY)
+                    elif configured_provider == "veo":
                         provider = GoogleVeoVideoProvider(api_key=settings.VIDEO_API_KEY)
                     elif configured_provider == "luma":
                         provider = LumaVideoProvider(api_key=settings.VIDEO_API_KEY)
@@ -126,38 +185,24 @@ class OmniForgeVideoProvider(BaseVideoProvider):
                         provider = AdobeFireflyVideoProvider(api_key=settings.VIDEO_API_KEY)
                     elif configured_provider == "pika":
                         provider = PikaVideoProvider(api_key=settings.VIDEO_API_KEY)
-                    else:
-                        provider = None
 
                     if provider:
                         result = provider.generate_video(prompt, duration_seconds, aspect_ratio, tw, th)
                         if result.get("video_path") and Path(result["video_path"]).exists():
                             return result
                 except Exception as e:
-                    logger.warning(f"[OmniForge] Premier provider {configured_provider} error ({e}). Cascading to Flux.1 AI Diffusion...")
+                    logger.warning(f"[OmniForge] Cloud provider {configured_provider} error ({e}). Cascading to Generative AI + Photography...")
 
-        # --- STEP 2: Free 8K Photorealistic Flux.1 Generative Diffusion + Camera Motion ---
-        enriched_prompt = self._enrich_prompt(prompt, aspect_ratio)
+        # --- STEP 2: Free Photorealistic Generative AI + Authentic Photography Cascade ---
         seed = self._get_consistent_seed(prompt)
         image_downloaded = False
         temp_img_path = storage_service.create_temp_path(prefix=f"omni_frame_{job_id}", suffix=".jpg")
 
         if is_network_available():
-            encoded_prompt = urllib.parse.quote(enriched_prompt)
-            # Try Flux.1 model first, then turbo fallback
-            model_candidates = ["flux", "turbo"]
-            for model_name in model_candidates:
-                url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={tw}&height={th}&model={model_name}&nologo=true&seed={seed}"
-                try:
-                    with httpx.Client(timeout=25.0, follow_redirects=True) as client:
-                        resp = client.get(url)
-                        if resp.status_code == 200 and len(resp.content) > 1000:
-                            temp_img_path.write_bytes(resp.content)
-                            image_downloaded = True
-                            logger.info(f"[OmniForge] Synthesized 8K AI frame via Flux.1 ({len(resp.content)} bytes, model={model_name})")
-                            break
-                except Exception as e:
-                    logger.warning(f"[OmniForge] Flux frame attempt with {model_name} failed: {e}")
+            img_bytes = self._acquire_scene_visual(prompt, tw, th, seed)
+            if img_bytes:
+                temp_img_path.write_bytes(img_bytes)
+                image_downloaded = True
 
         out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
 

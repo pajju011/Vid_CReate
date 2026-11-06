@@ -43,23 +43,46 @@ class PollinationsVideoProvider(BaseVideoProvider):
         tw = width if width else (1080 if aspect_ratio == "9:16" else 1920)
         th = height if height else (1920 if aspect_ratio == "9:16" else 1080)
 
-        # 1. Generate real AI image from Pollinations Flux API
+        # 1. Generate real AI image from Pollinations API or Authentic Photography
         temp_img_path = storage_service.create_temp_path(prefix=f"img_{job_id}", suffix=".jpg")
         clean_prompt = prompt.strip().replace("\n", " ")
         encoded_prompt = urllib.parse.quote(f"{clean_prompt}, 8k ultra-detailed, photorealistic, cinematic volumetric lighting, 9:16 portrait vertical")
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={tw}&height={th}&model=flux&nologo=true&seed={uuid.uuid4().int % 100000}"
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={tw}&height={th}&nologo=true&seed={uuid.uuid4().int % 100000}"
 
         image_downloaded = False
         if is_network_available():
             try:
-                with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+                with httpx.Client(timeout=14.0, follow_redirects=True) as client:
                     resp = client.get(url)
-                    if resp.status_code == 200 and len(resp.content) > 1000:
+                    if resp.status_code == 200 and len(resp.content) > 1000 and "image" in resp.headers.get("content-type", ""):
                         temp_img_path.write_bytes(resp.content)
                         image_downloaded = True
-                        logger.info(f"Generated AI scene image with Pollinations Flux ({len(resp.content)} bytes)")
+                        logger.info(f"Generated AI scene image with Pollinations ({len(resp.content)} bytes)")
+                    else:
+                        logger.info(f"Pollinations returned status {resp.status_code}, searching authentic photography...")
             except Exception as e:
-                logger.warning(f"Pollinations AI image generation network error ({e}), using fallback visual")
+                logger.warning(f"Pollinations AI image generation network error ({e}), searching authentic photography...")
+
+            if not image_downloaded:
+                try:
+                    import re
+                    clean_words = [w.lower() for w in re.sub(r'[^a-zA-Z0-9\s]', ' ', clean_prompt).split() if len(w) > 3 and w.lower() not in {"ultra", "cinematic", "photorealistic", "detailed", "resolution", "lighting", "shot"}]
+                    search_kw = " ".join(clean_words[:2]) or "cinematic"
+                    headers = {"User-Agent": "ClipForgeAI/1.0 (https://github.com/clipforge; contact@clipforge.local) python-httpx"}
+                    wiki_url = f"https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch={urllib.parse.quote(search_kw)}&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url|mime&format=json"
+                    with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                        w_resp = client.get(wiki_url, headers=headers)
+                        if w_resp.status_code == 200:
+                            pages = w_resp.json().get("query", {}).get("pages", {})
+                            urls = [pdata.get("imageinfo", [{}])[0].get("url") for pid, pdata in pages.items() if any(ext in pdata.get("imageinfo", [{}])[0].get("mime", "").lower() for ext in ["jpeg", "jpg", "png", "webp"])]
+                            if urls:
+                                img_resp = client.get(urls[0], headers=headers)
+                                if img_resp.status_code == 200 and len(img_resp.content) > 4000:
+                                    temp_img_path.write_bytes(img_resp.content)
+                                    image_downloaded = True
+                                    logger.info(f"Acquired authentic photography fallback ({len(img_resp.content)} bytes) for '{search_kw}'")
+                except Exception as w_err:
+                    logger.warning(f"Authentic photography fallback error: {w_err}")
 
         out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
 

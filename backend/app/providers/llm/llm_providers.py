@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from app.core.config import settings
 from app.core.logging import logger
 from app.providers.base import BaseLLMProvider
+from app.utils.network import is_network_available
 
 class MockLLMProvider(BaseLLMProvider):
     """
@@ -111,13 +112,11 @@ class GeminiLLMProvider(BaseLLMProvider):
         self._mock = MockLLMProvider()
 
     def _get_headers_and_url(self, endpoint: str) -> tuple[Dict[str, str], str]:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key.startswith("AQ.") or self.api_key.startswith("ya29."):
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        if self.api_key.startswith("ya29."):
             headers["Authorization"] = f"Bearer {self.api_key}"
-            headers["x-goog-api-key"] = self.api_key
             url = f"{self.base_url}/{endpoint}"
         else:
-            headers["x-goog-api-key"] = self.api_key
             url = f"{self.base_url}/{endpoint}?key={self.api_key}"
         return headers, url
 
@@ -132,59 +131,54 @@ class GeminiLLMProvider(BaseLLMProvider):
             clean = "\n".join(lines).strip()
         return json.loads(clean)
 
+    def _call_gemini_api(self, prompt_text: str, is_json: bool = True) -> Optional[Any]:
+        if not is_network_available():
+            return None
+        models = ["models/gemini-3.5-flash:generateContent", "models/gemini-2.5-pro:generateContent", "models/gemini-flash-latest:generateContent"]
+        for endpoint in models:
+            headers, url = self._get_headers_and_url(endpoint)
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt_text}]
+                }]
+            }
+            if is_json:
+                payload["generationConfig"] = {"response_mime_type": "application/json"}
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.post(url, headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                        return self._clean_json_response(raw_text) if is_json else raw_text
+                    else:
+                        logger.warning(f"Gemini API {endpoint} returned status {resp.status_code} ({resp.text[:150]})")
+            except Exception as e:
+                logger.warning(f"Gemini API {endpoint} error ({e})")
+        return None
+
     def generate_script(self, prompt: str, duration_seconds: float, platform: str) -> Dict[str, Any]:
-        headers, url = self._get_headers_and_url("models/gemini-1.5-flash:generateContent")
         sys_instruction = (
             f"You are an expert short-form viral scriptwriter for {platform}. "
             f"Return ONLY valid JSON with keys: 'title', 'platform', 'duration_seconds', 'hook', 'core_message', 'call_to_action'."
         )
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": f"{sys_instruction}\nUser Prompt: {prompt}\nTarget Duration: {duration_seconds}s"
-                }]
-            }],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return self._clean_json_response(raw_text)
-                else:
-                    logger.warning(f"Gemini API returned status {resp.status_code} ({resp.text[:200]}), falling back to deterministic director")
-        except Exception as e:
-            logger.warning(f"Gemini API error ({e}), falling back to deterministic director")
+        prompt_text = f"{sys_instruction}\nUser Prompt: {prompt}\nTarget Duration: {duration_seconds}s"
+        result = self._call_gemini_api(prompt_text, is_json=True)
+        if result and isinstance(result, dict) and "hook" in result:
+            return result
+        logger.info("Using deterministic script director fallback")
         return self._mock.generate_script(prompt, duration_seconds, platform)
 
     def generate_storyboard(self, script_data: Dict[str, Any], num_scenes: int, style: str) -> List[Dict[str, Any]]:
-        headers, url = self._get_headers_and_url("models/gemini-1.5-flash:generateContent")
         sys_instruction = (
             f"Generate a {num_scenes}-scene storyboard in {style} style for {script_data.get('platform', 'reels')}. "
             "Return ONLY a JSON array of objects with keys: 'scene_number', 'duration_seconds', 'purpose', 'visual_prompt', 'camera_movement', 'narration', 'caption', 'transition'."
         )
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": f"{sys_instruction}\nScript Context: {json.dumps(script_data)}"
-                }]
-            }],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return self._clean_json_response(raw_text)
-                else:
-                    logger.warning(f"Gemini API status {resp.status_code} ({resp.text[:200]}), falling back to storyboard planner")
-        except Exception as e:
-            logger.warning(f"Gemini API error ({e}), falling back to storyboard planner")
-        return self._mock.generate_storyboard(script_data, num_scenes, style)
+        prompt_text = f"{sys_instruction}\nScript Context: {json.dumps(script_data)}"
+        result = self._call_gemini_api(prompt_text, is_json=True)
+        if result and isinstance(result, list) and len(result) > 0:
+            return result
+        logger.info("Using deterministic storyboard planner fallback")
         return self._mock.generate_storyboard(script_data, num_scenes, style)
 
     def analyze_transcript(self, transcript_text: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
