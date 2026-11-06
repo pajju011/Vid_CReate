@@ -428,6 +428,21 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
                     logger.warning(f"Scene {idx} generation error on attempt {attempt + 1}: {e}")
 
             if not v_path or not v_path.exists():
+                logger.warning(f"Scene {idx} could not pass QC after retries. Generating ultra-reliable procedural scene fallback...")
+                fb_path = storage_service.create_temp_path(prefix=f"scene_{idx}_fallback", suffix=".mp4")
+                create_sample_scene_video(
+                    output_path=fb_path,
+                    duration=duration,
+                    scene_number=idx,
+                    purpose=f"Scene {idx}",
+                    caption=prompt_text[:35],
+                    width=1080 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1920,
+                    height=1920 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1080
+                )
+                if fb_path.exists() and fb_path.stat().st_size > 0:
+                    v_path = fb_path
+
+            if not v_path or not v_path.exists():
                 raise RuntimeError(f"Scene {idx} failed to generate and pass quality control after retries.")
 
             scene_video_paths.append(v_path)

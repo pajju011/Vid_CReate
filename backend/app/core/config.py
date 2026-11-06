@@ -101,8 +101,7 @@ class Settings(BaseSettings):
     # Database - standard SQLite for reliable zero-latency local development
     DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'clipforge.db'}"
     
-    # Redis & Background Tasks
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Background Tasks
     USE_LOCAL_QUEUE: bool = True
     
     # Media & Upload Limits

@@ -270,16 +270,29 @@ def generate_image_to_video_motion(
     scale_w = int(target_width * 1.25)
     scale_h = int(target_height * 1.25)
 
-    if motion_type == "slow_zoom_out":
-        zoom_expr = "max(1.25-0.0012*on, 1.0)"
+    clean_motion = (motion_type or "slow_zoom_in").lower().strip()
+    if clean_motion in ("slow_zoom_out", "pull_back_reveal"):
+        zoom_expr = f"1.25-0.25*(on/{total_frames})"
         x_expr = "iw/2-(iw/zoom/2)"
         y_expr = "ih/2-(ih/zoom/2)"
-    elif motion_type == "pan_right":
+    elif clean_motion in ("pan_right", "tracking_pan_right"):
         zoom_expr = "1.15"
-        x_expr = "min((iw-iw/zoom)*(on/d), iw-iw/zoom)"
+        x_expr = f"(iw-iw/zoom)*(on/{total_frames})"
         y_expr = "ih/2-(ih/zoom/2)"
-    else: # default: slow_zoom_in / push_in
-        zoom_expr = "min(zoom+0.0012, 1.25)"
+    elif clean_motion in ("pan_left", "tracking_pan_left"):
+        zoom_expr = "1.15"
+        x_expr = f"(iw-iw/zoom)*(1.0-on/{total_frames})"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif clean_motion in ("tilt_down",):
+        zoom_expr = "1.15"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*(on/{total_frames})"
+    elif clean_motion in ("tilt_up",):
+        zoom_expr = "1.15"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*(1.0-on/{total_frames})"
+    else:  # default: slow_zoom_in / slow_push_in / push_in / orbit_pan
+        zoom_expr = f"1.0+0.25*(on/{total_frames})"
         x_expr = "iw/2-(iw/zoom/2)"
         y_expr = "ih/2-(ih/zoom/2)"
 

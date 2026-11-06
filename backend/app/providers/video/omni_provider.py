@@ -162,6 +162,8 @@ class OmniForgeVideoProvider(BaseVideoProvider):
         out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
 
         # --- STEP 3: Apply Camera Motion or Fluid Procedural Generation ---
+        chosen_motion = "fluid_motion"
+        success = False
         if image_downloaded and temp_img_path.exists():
             motion_choices = ["slow_zoom_in", "slow_zoom_out", "pan_right"]
             chosen_motion = motion_choices[seed % len(motion_choices)]
@@ -175,7 +177,8 @@ class OmniForgeVideoProvider(BaseVideoProvider):
                 target_height=th
             )
             temp_img_path.unlink(missing_ok=True)
-        else:
+
+        if not success or not out_path.exists() or out_path.stat().st_size == 0:
             logger.info("[OmniForge] Generating fluid procedural motion graphics fallback")
             success = create_sample_scene_video(
                 output_path=out_path,
