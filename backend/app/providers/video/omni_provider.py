@@ -62,26 +62,32 @@ class OmniForgeVideoProvider(BaseVideoProvider):
         return int(hashlib.md5(clean.encode("utf-8")).hexdigest()[:8], 16) % 1000000
 
     def _extract_subject_queries(self, prompt: str) -> List[str]:
-        """Extracts prioritized subject search queries from a descriptive prompt."""
+        """Extracts prioritized subject search queries strictly anchored to the core concept."""
         import re
+        clean = re.sub(r"[^a-zA-Z0-9\s]", " ", prompt.lower())
         stopwords = {
             "ultra", "cinematic", "photorealistic", "detailed", "resolution", "lighting", "shot",
             "vertical", "horizontal", "format", "scene", "close", "slow", "motion", "high",
             "impact", "macro", "dynamic", "sleek", "opening", "closing", "demonstration", "style",
             "vibrant", "action", "with", "from", "that", "this", "these", "those", "being", "pulled",
             "into", "around", "over", "under", "through", "delicious", "perfect", "irresistible", "quality",
-            "frame", "framing", "masterpiece", "footage", "showing", "capturing", "focus"
+            "frame", "framing", "masterpiece", "footage", "showing", "capturing", "focus", "golden", "fresh",
+            "rich", "pure", "long", "thick", "warm", "dark", "soft", "light", "super", "best", "great", "view"
         }
-        clean = re.sub(r"[^a-zA-Z0-9\s]", " ", prompt)
-        words = [w.lower() for w in clean.split() if len(w) > 3 and w.lower() not in stopwords]
-        
+        words = [w for w in clean.split() if len(w) > 3 and w not in stopwords]
+
+        known_subjects = ["pizza", "burger", "pasta", "taco", "sushi", "cake", "bread", "cheese", "coffee", "salad", "food", "cooking", "fitness", "workout", "gym", "tech", "gadget", "car", "watch"]
+        main_subject = next((s for s in known_subjects if s in clean), None)
+        if not main_subject and words:
+            main_subject = words[0]
+
         queries = []
-        if len(words) >= 2:
-            queries.append(f"{words[0]} {words[1]}")
-        if len(words) >= 1:
-            queries.append(words[0])
-            queries.append(f"{words[0]} food" if any(f in prompt.lower() for f in ["pizza", "cheese", "food", "burger", "coffee"]) else f"{words[0]} product")
-        return queries or ["food pizza"]
+        for w in words:
+            if main_subject and w != main_subject:
+                queries.append(f"{w} {main_subject}")
+        if main_subject:
+            queries.append(main_subject)
+        return queries[:4] or ["pizza"]
 
     def _acquire_scene_visual(self, prompt: str, tw: int, th: int, seed: int) -> Optional[bytes]:
         """
@@ -129,6 +135,101 @@ class OmniForgeVideoProvider(BaseVideoProvider):
                                 return img_resp.content
         except Exception as e:
             logger.warning(f"[OmniForge] Stock photo fetch error: {e}")
+
+        return None
+
+    def _acquire_scene_real_video(
+        self,
+        prompt: str,
+        duration_seconds: float,
+        aspect_ratio: str,
+        tw: int,
+        th: int,
+        seed: int
+    ) -> Optional[Path]:
+        """
+        Searches, downloads, and adapts actual motion video footage (.mp4/.webm)
+        matching scene concepts into target aspect-ratio cinematic clips.
+        """
+        import subprocess
+        headers = {"User-Agent": "ClipForgeAI/1.0 (https://github.com/clipforge; contact@clipforge.local) python-httpx"}
+        candidate_queries = self._extract_subject_queries(prompt)
+
+        found_url = None
+        for kw in candidate_queries:
+            search_query = f"{kw} filetype:video"
+            url = f"https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch={urllib.parse.quote(search_query)}&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url|mime|size&format=json"
+            try:
+                with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+                    r = client.get(url, headers=headers)
+                    if r.status_code == 200:
+                        pages = r.json().get("query", {}).get("pages", {})
+                        v_urls = []
+                        for pid, pdata in pages.items():
+                            ii = pdata.get("imageinfo", [{}])[0]
+                            mime = ii.get("mime", "").lower()
+                            size = ii.get("size", 0)
+                            title_lower = pdata.get("title", "").lower()
+                            url_lower = ii.get("url", "").lower()
+                            # Enforce topical relevance
+                            relevant_keywords = ["pizza", "dough", "cheese", "crust", "oven", "sauce", "baking", "cook", "food", "kitchen", "slice"]
+                            if any(k in prompt.lower() for k in ["pizza", "cheese", "food", "cook"]):
+                                if not any(k in title_lower or k in url_lower for k in relevant_keywords):
+                                    continue
+
+                            if ("video" in mime or "webm" in mime or "mp4" in mime) and 100000 < size < 90000000:
+                                v_urls.append(ii.get("url"))
+                        if v_urls:
+                            found_url = v_urls[seed % len(v_urls)]
+                            logger.info(f"[OmniForge] Found authentic motion video stream for '{kw}': {found_url[:60]}")
+                            break
+            except Exception as e:
+                logger.warning(f"[OmniForge] Video stream query error for '{kw}': {e}")
+
+        if not found_url:
+            return None
+
+        # Download raw footage stream
+        raw_path = storage_service.create_temp_path(prefix="real_stream", suffix=".webm")
+        try:
+            with httpx.Client(timeout=35.0, follow_redirects=True) as client:
+                r = client.get(found_url, headers=headers)
+                if r.status_code == 200 and len(r.content) > 100000:
+                    raw_path.write_bytes(r.content)
+                else:
+                    return None
+        except Exception as dl_err:
+            logger.warning(f"[OmniForge] Raw video download error: {dl_err}")
+            return None
+
+        # Adapt with FFmpeg: trim duration + vertical 9:16 layout
+        out_path = storage_service.create_temp_path(prefix="real_scene", suffix=".mp4")
+        filter_complex = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=increase,crop={tw}:{th},boxblur=20:5[bg];"
+            f"[0:v]scale={tw}:-2[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
+        )
+        cmd = [
+            settings.FFMPEG_PATH, "-y",
+            "-ss", str(max(0.5, float(seed % 4) * 1.5)),
+            "-i", str(raw_path),
+            "-t", str(duration_seconds),
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            str(out_path)
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, check=True)
+            raw_path.unlink(missing_ok=True)
+            if out_path.exists() and out_path.stat().st_size > 0:
+                return out_path
+        except Exception as ff_err:
+            logger.warning(f"[OmniForge] Real video adaptation error: {ff_err}")
+            raw_path.unlink(missing_ok=True)
 
         return None
 
@@ -193,8 +294,28 @@ class OmniForgeVideoProvider(BaseVideoProvider):
                 except Exception as e:
                     logger.warning(f"[OmniForge] Cloud provider {configured_provider} error ({e}). Cascading to Generative AI + Photography...")
 
-        # --- STEP 2: Free Photorealistic Generative AI + Authentic Photography Cascade ---
         seed = self._get_consistent_seed(prompt)
+
+        # --- STEP 2: Real Motion Video Footage Adaptation ---
+        if is_network_available():
+            real_vid_path = self._acquire_scene_real_video(prompt, duration_seconds, aspect_ratio, tw, th, seed)
+            if real_vid_path and real_vid_path.exists():
+                qc = qc_service.evaluate_video(real_vid_path, expected_aspect_ratio=aspect_ratio, min_duration=1.0)
+                if qc["status"] == "passed":
+                    logger.info(f"[OmniForge] Successfully produced REAL MOTION video scene: {real_vid_path}")
+                    asset_cache.store_cached_video(prompt, "cinematic", duration_seconds, aspect_ratio, real_vid_path)
+                    return {
+                        "job_id": job_id,
+                        "status": "completed",
+                        "progress": 100,
+                        "video_path": str(real_vid_path),
+                        "is_demo_asset": False,
+                        "provider": "omniforge_real_video",
+                        "cached": False,
+                        "motion_type": "authentic_temporal_motion"
+                    }
+
+        # --- STEP 3: Free Photorealistic Generative AI + Authentic Photography Cascade ---
         image_downloaded = False
         temp_img_path = storage_service.create_temp_path(prefix=f"omni_frame_{job_id}", suffix=".jpg")
 
