@@ -248,6 +248,15 @@ class PexelsVideoProvider(BaseVideoProvider):
                 logger.warning(f"[Pexels] Download/adaptation failed ({e})")
                 raw_temp.unlink(missing_ok=True)
 
+        # Fallback cascade to 3D Depth Parallax if stock API key is unavailable or returned no results
+        logger.info(f"[Pexels] Stock video API unavailable or no match found for '{prompt[:40]}'; smoothly cascading to OmniForge 3D Depth Parallax...")
+        try:
+            from app.providers.video.omni_provider import OmniForgeVideoProvider
+            omni = OmniForgeVideoProvider()
+            return omni.generate_video(prompt, dur, aspect_ratio, tw, th)
+        except Exception as cascade_err:
+            logger.warning(f"[Pexels] Cascade to OmniForge failed ({cascade_err})")
+
         return {
             "job_id": job_id,
             "status": "failed",
