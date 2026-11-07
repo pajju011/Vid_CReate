@@ -5,7 +5,7 @@ from app.core.config import settings
 engine = create_engine(
     settings.DATABASE_URL,
     echo=False,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in settings.DATABASE_URL else {}
 )
 
 SessionLocal = sessionmaker(
@@ -27,6 +27,17 @@ def get_db():
 
 def init_db():
     import app.models.entities
+    # Enable WAL mode for concurrent multi-threaded safety in SQLite
+    if "sqlite" in settings.DATABASE_URL:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("PRAGMA journal_mode=WAL;"))
+                conn.execute(text("PRAGMA synchronous=NORMAL;"))
+                conn.commit()
+            except Exception:
+                pass
+
     Base.metadata.create_all(bind=engine)
     
     # Auto-migrate columns if missing in SQLite

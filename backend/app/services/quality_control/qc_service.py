@@ -33,7 +33,12 @@ class QualityControlService:
                 "metrics": {}
             }
 
-        duration = metadata.get("duration", 0.0)
+        raw_duration = metadata.get("duration")
+        try:
+            duration = float(raw_duration) if raw_duration is not None else 0.0
+        except (ValueError, TypeError):
+            duration = 0.0
+
         width = metadata.get("width")
         height = metadata.get("height")
         has_audio = metadata.get("has_audio", False)
@@ -45,10 +50,13 @@ class QualityControlService:
         if require_audio and not has_audio:
             issues.append({"type": "technical", "message": "Audio stream is missing."})
 
-        if duration < min_duration:
-            issues.append({"type": "technical", "message": f"Video duration ({duration:.1f}s) is shorter than minimum allowed ({min_duration:.1f}s)."})
-        elif duration > max_duration:
-            issues.append({"type": "technical", "message": f"Video duration ({duration:.1f}s) exceeds maximum allowed ({max_duration:.1f}s)."})
+        if duration > 0.0:
+            if duration < (min_duration - 0.25):
+                issues.append({"type": "technical", "message": f"Video duration ({duration:.1f}s) is shorter than minimum allowed ({min_duration:.1f}s)."})
+            elif duration > max_duration:
+                issues.append({"type": "technical", "message": f"Video duration ({duration:.1f}s) exceeds maximum allowed ({max_duration:.1f}s)."})
+        elif not has_video:
+            issues.append({"type": "technical", "message": "Zero or undecodable media duration."})
 
         # Check aspect ratio
         if width and height:

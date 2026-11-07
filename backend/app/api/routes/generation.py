@@ -38,29 +38,36 @@ def generate_storyboard(payload: PromptPlanningRequest):
 @router.post("/video", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
 def trigger_prompt_to_video(payload: PromptPlanningRequest, db: Session = Depends(get_db)):
     """Initialize project and enqueue full prompt-to-video generation job."""
-    proj = Project(
-        name=f"Reel: {payload.prompt[:40]}",
-        project_type="prompt_to_video",
-        platform=payload.target_platform,
-        settings=payload.model_dump(),
-        status="processing"
-    )
-    db.add(proj)
-    db.flush()
+    try:
+        proj = Project(
+            name=f"Reel: {payload.prompt[:40]}",
+            project_type="prompt_to_video",
+            platform=payload.target_platform,
+            settings=payload.model_dump(),
+            status="processing"
+        )
+        db.add(proj)
+        db.flush()
 
-    job = Job(
-        project_id=proj.id,
-        job_type="prompt_to_video",
-        status="pending",
-        progress=0,
-        current_step="Queueing generation..."
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+        job = Job(
+            project_id=proj.id,
+            job_type="prompt_to_video",
+            status="pending",
+            progress=0,
+            current_step="Queueing generation..."
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
 
-    local_queue.enqueue_prompt_video(job.id, proj.id, payload.model_dump())
-    return job
+        local_queue.enqueue_prompt_video(job.id, proj.id, payload.model_dump())
+        return job
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to trigger video generation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize video generation: {str(e)}")
 
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job_status(job_id: str, db: Session = Depends(get_db)):

@@ -42,6 +42,10 @@ def create_sample_scene_video(
     Provides smooth dynamic motion graphics when offline.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    dur = max(1.5, float(duration or 5.0))
+    w = int(width or 1080)
+    h = int(height or 1920)
+
     palette_pairs = [
         ("0x0f172a", "0x4338ca"), # Dark Slate to Indigo
         ("0x111827", "0x059669"), # Slate to Emerald
@@ -50,19 +54,35 @@ def create_sample_scene_video(
         ("0x022c22", "0x0d9488"), # Forest to Teal
     ]
     c0, c1 = palette_pairs[(scene_number - 1) % len(palette_pairs)]
-    vf = f"gradients=s={width}x{height}:d={duration}:c0={c0}:c1={c1}:speed=0.01"
+    vf = f"gradients=s={w}x{h}:d={dur}:c0={c0}:c1={c1}:speed=0.01"
     args = [
         "-f", "lavfi", "-i", vf,
-        "-f", "lavfi", "-i", f"sine=frequency={160 + scene_number * 35}:duration={duration}",
+        "-f", "lavfi", "-i", f"sine=frequency={160 + scene_number * 35}:duration={dur}",
         "-af", "volume=0.15,lowpass=f=800",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "128k",
+        "-t", str(dur),
         str(output_path)
     ]
     success, _ = run_ffmpeg(args)
+    if not success or not output_path.exists() or output_path.stat().st_size == 0:
+        # Fallback to universal color background
+        fallback_vf = f"color=c=0x111827:s={w}x{h}:d={dur}"
+        fb_args = [
+            "-f", "lavfi", "-i", fallback_vf,
+            "-f", "lavfi", "-i", f"sine=frequency=220:duration={dur}",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-t", str(dur),
+            str(output_path)
+        ]
+        success, _ = run_ffmpeg(fb_args)
     return success
 
 def create_sample_audio_track(

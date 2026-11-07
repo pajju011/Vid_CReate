@@ -35,6 +35,10 @@ class SchedulerService:
         logger.info("ClipForge background scheduler service stopped.")
 
     def _run_loop(self):
+        # Allow server startup and DB migrations to finish cleanly
+        if self._stop_event.wait(2.0):
+            return
+
         while self._running:
             try:
                 self.process_due_tasks()
