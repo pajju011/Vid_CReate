@@ -12,6 +12,7 @@ from app.providers.video.video_providers import (
 )
 from app.providers.video.omni_provider import OmniForgeVideoProvider
 from app.providers.video.gemini_omni_provider import GeminiOmniVideoProvider
+from app.providers.video.pexels_provider import PexelsVideoProvider
 from app.providers.audio.audio_providers import (
     MockAudioProvider, EdgeTTSAudioProvider, ElevenLabsAudioProvider, OpenAIAudioProvider
 )
@@ -44,6 +45,9 @@ class ProviderRegistry:
             return OmniForgeVideoProvider()
 
         provider_name = (settings.VIDEO_PROVIDER or "omni").lower()
+
+        if provider_name in ("pexels", "stock", "pixabay"):
+            return PexelsVideoProvider()
 
         if provider_name in ("gemini_omni", "gemini_video"):
             key = settings.VIDEO_API_KEY or settings.LLM_API_KEY

@@ -28,6 +28,7 @@ export const PromptStudio: React.FC = () => {
   const [captionStyle, setCaptionStyle] = useState('bold_yellow');
   const [bgMusic, setBgMusic] = useState('upbeat_synth');
   const [numScenes, setNumScenes] = useState(4);
+  const [videoEngine, setVideoEngine] = useState('omni');
 
   const [storyboard, setStoryboard] = useState<StructuredScenePlan[] | null>(null);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -52,6 +53,7 @@ export const PromptStudio: React.FC = () => {
         language: 'en',
         num_scenes: numScenes,
         quality: 'high',
+        video_engine: videoEngine,
       });
       setStoryboard(plan.scenes);
     } catch (err: any) {
@@ -77,6 +79,7 @@ export const PromptStudio: React.FC = () => {
         language: 'en',
         num_scenes: storyboard ? storyboard.length : numScenes,
         quality: 'high',
+        video_engine: videoEngine,
       };
       const job = await api.triggerPromptToVideo(payload);
       setActiveJobId(job.id);
@@ -154,7 +157,24 @@ export const PromptStudio: React.FC = () => {
         </div>
 
         {/* Configuration Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 pt-4 border-t border-gray-800/80">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 pt-4 border-t border-gray-800/80">
+          {/* Video Engine Selection */}
+          <div>
+            <label className="text-xs font-semibold text-gray-300 mb-2 block flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              Motion Engine
+            </label>
+            <select
+              value={videoEngine}
+              onChange={(e) => setVideoEngine(e.target.value)}
+              className="w-full text-xs bg-[#0b0f17] border border-cyan-800/60 rounded-lg p-2.5 text-cyan-200 focus:border-cyan-400 focus:outline-none"
+            >
+              <option value="omni">OmniForge (3D Depth Parallax)</option>
+              <option value="pexels">Authentic 4K Video (Pexels)</option>
+              <option value="veo">Google Veo 2 (Generative AI)</option>
+            </select>
+          </div>
+
           {/* Target Platform */}
           <div>
             <label className="text-xs font-semibold text-gray-300 mb-2 block flex items-center gap-1.5">

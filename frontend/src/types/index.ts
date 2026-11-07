@@ -119,6 +119,7 @@ export interface PromptPlanningRequest {
   language: string;
   num_scenes: number;
   quality: string;
+  video_engine?: string;
 }
 
 export interface ProviderItemStatus {

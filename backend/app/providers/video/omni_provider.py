@@ -21,6 +21,8 @@ from app.providers.video.video_providers import (
     AdobeFireflyVideoProvider, PikaVideoProvider
 )
 from app.providers.video.gemini_omni_provider import GeminiOmniVideoProvider
+from app.providers.video.pexels_provider import PexelsVideoProvider
+from app.services.motion.parallax_engine import generate_3d_depth_parallax_video
 
 class OmniForgeVideoProvider(BaseVideoProvider):
     """
@@ -218,7 +220,19 @@ class OmniForgeVideoProvider(BaseVideoProvider):
 
         seed = self._get_consistent_seed(prompt)
 
-        # --- STEP 2: Generative AI Visual + Authentic Photography Cascade ---
+        # --- STEP 2: Real 4K Motion Video (Pexels / Pixabay) if enabled ---
+        pexels_key = getattr(settings, "PEXELS_API_KEY", None) or os.getenv("PEXELS_API_KEY")
+        if configured_provider in ("pexels", "stock") or pexels_key:
+            try:
+                pexels = PexelsVideoProvider()
+                p_res = pexels.generate_video(prompt, dur, aspect_ratio, tw, th)
+                if p_res.get("video_path") and Path(p_res["video_path"]).exists():
+                    logger.info(f"[OmniForge] Acquired authentic 4K stock video footage for: '{prompt[:40]}'")
+                    return p_res
+            except Exception as p_err:
+                logger.info(f"[OmniForge] Pexels video fetch attempt: {p_err}")
+
+        # --- STEP 3: Generative AI Visual + Authentic Photography Cascade ---
         image_downloaded = False
         temp_img_path = storage_service.create_temp_path(prefix=f"omni_frame_{job_id}", suffix=".jpg")
 
@@ -229,21 +243,36 @@ class OmniForgeVideoProvider(BaseVideoProvider):
 
         out_path = storage_service.create_temp_path(prefix=job_id, suffix=".mp4")
 
-        # --- STEP 3: Apply Camera Motion or Fluid Procedural Generation ---
-        chosen_motion = "slow_push_in"
+        # --- STEP 4: Apply 3D Depth-Mesh Parallax or Subpixel Camera Motion ---
+        chosen_motion = "3d_depth_parallax"
         success = False
         if image_downloaded and temp_img_path.exists():
-            motion_choices = ["slow_zoom_in", "slow_zoom_out", "pan_right", "tilt_down"]
-            chosen_motion = motion_choices[seed % len(motion_choices)]
+            # Attempt True 3D Depth-Mesh Parallax & Atmosphere Dynamics first
+            try:
+                success = generate_3d_depth_parallax_video(
+                    image_path=temp_img_path,
+                    output_path=out_path,
+                    duration=dur,
+                    prompt=prompt,
+                    target_width=tw,
+                    target_height=th
+                )
+                if success:
+                    logger.info(f"[OmniForge] Successfully synthesized 3D Depth Parallax scene: {out_path.name}")
+            except Exception as par_err:
+                logger.warning(f"[OmniForge] 3D Parallax generation error: {par_err}")
 
-            success = generate_image_to_video_motion(
-                image_path=temp_img_path,
-                output_path=out_path,
-                duration=dur,
-                motion_type=chosen_motion,
-                target_width=tw,
-                target_height=th
-            )
+            if not success or not out_path.exists() or out_path.stat().st_size == 0:
+                motion_choices = ["slow_zoom_in", "slow_zoom_out", "pan_right", "tilt_down"]
+                chosen_motion = motion_choices[seed % len(motion_choices)]
+                success = generate_image_to_video_motion(
+                    image_path=temp_img_path,
+                    output_path=out_path,
+                    duration=dur,
+                    motion_type=chosen_motion,
+                    target_width=tw,
+                    target_height=th
+                )
             temp_img_path.unlink(missing_ok=True)
 
         if not success or not out_path.exists() or out_path.stat().st_size == 0:

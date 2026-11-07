@@ -151,6 +151,7 @@ class PromptPlanningRequest(BaseModel):
     language: str = "en"
     num_scenes: int = 5
     quality: str = "standard" # standard | high
+    video_engine: str = "omni" # omni | pexels | veo | parallax
 
 class SceneUpdateRequest(BaseModel):
     prompt: Optional[str] = None

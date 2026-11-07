@@ -365,7 +365,15 @@ def run_prompt_to_video_pipeline(job_id: str, project_id: str, prompt_data: dict
             f"Generating visual assets for {len(scene_ids)} scenes...",
             result_data={"stage": "generating_scenes", "scenes_total": len(scene_ids), "scenes_completed": len(completed_scenes)}
         )
-        video_provider = providers.get_video_provider()
+        engine_choice = (prompt_data.get("video_engine") or "").lower()
+        if engine_choice in ("pexels", "stock"):
+            from app.providers.video.pexels_provider import PexelsVideoProvider
+            video_provider = PexelsVideoProvider()
+        elif engine_choice in ("veo", "google_veo"):
+            from app.providers.video.video_providers import GoogleVeoVideoProvider
+            video_provider = GoogleVeoVideoProvider(api_key=settings.VIDEO_API_KEY)
+        else:
+            video_provider = providers.get_video_provider()
         scene_video_paths = []
 
         target_w = 1080 if prompt_data.get("aspect_ratio", "9:16") == "9:16" else 1920
@@ -633,7 +641,15 @@ def run_regenerate_scene_pipeline(job_id: str, scene_id: str, new_prompt: Option
             scene.status = "generating"
             session.commit()
 
-        video_provider = providers.get_video_provider()
+        engine_choice = (prompt_data.get("video_engine") or "").lower()
+        if engine_choice in ("pexels", "stock"):
+            from app.providers.video.pexels_provider import PexelsVideoProvider
+            video_provider = PexelsVideoProvider()
+        elif engine_choice in ("veo", "google_veo"):
+            from app.providers.video.video_providers import GoogleVeoVideoProvider
+            video_provider = GoogleVeoVideoProvider(api_key=settings.VIDEO_API_KEY)
+        else:
+            video_provider = providers.get_video_provider()
         gen_result = video_provider.generate_video(
             prompt=prompt_text,
             duration_seconds=duration,

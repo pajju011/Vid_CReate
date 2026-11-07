@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     PRIVACY_MODE: str = "strict_local"
     ALLOW_CLOUD_TRANSFERS: bool = False
     CLOUD_PROVIDER_ALLOWLIST: List[str] = [
-        "gemini", "veo", "runway", "luma", "kling", "seedance", "firefly", "elevenlabs", "whisper", "pollinations"
+        "gemini", "veo", "runway", "luma", "kling", "seedance", "firefly", "elevenlabs", "whisper", "pollinations", "pexels", "pixabay"
     ]
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     
     VIDEO_PROVIDER: str = "mock"
     VIDEO_API_KEY: Optional[str] = None
+    PEXELS_API_KEY: Optional[str] = None
+    PIXABAY_API_KEY: Optional[str] = None
     
     IMAGE_PROVIDER: str = "mock"
     IMAGE_API_KEY: Optional[str] = None
