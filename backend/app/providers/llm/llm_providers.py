@@ -151,16 +151,9 @@ class GeminiLLMProvider(BaseLLMProvider):
         self._mock = MockLLMProvider()
 
     def _get_headers_and_url(self, endpoint: str) -> tuple[Dict[str, str], str]:
-        # Handle OAuth2 tokens (AQ. / ya29.) vs standard AI Studio API keys (AIzaSy...)
-        if self.api_key.startswith("AIzaSy"):
-            headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
-            url = f"{self.base_url}/{endpoint}?key={self.api_key}"
-        else:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            url = f"{self.base_url}/{endpoint}"
+        # Google AI Studio accepts both AIzaSy... and AQ... keys via x-goog-api-key and ?key=
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        url = f"{self.base_url}/{endpoint}?key={self.api_key}"
         return headers, url
 
     def _clean_json_response(self, text: str) -> Any:
@@ -176,9 +169,10 @@ class GeminiLLMProvider(BaseLLMProvider):
 
     def _call_gemini_api(self, prompt_text: str, is_json: bool = True) -> Optional[Any]:
         models = [
-            "models/gemini-2.5-flash:generateContent",
-            "models/gemini-1.5-flash:generateContent",
-            "models/gemini-flash-latest:generateContent"
+            "models/gemini-3.1-flash-lite:generateContent",
+            "models/gemini-3-flash-preview:generateContent",
+            "models/gemini-flash-latest:generateContent",
+            "models/gemini-2.5-flash:generateContent"
         ]
         for endpoint in models:
             headers, url = self._get_headers_and_url(endpoint)
